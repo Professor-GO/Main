@@ -16,6 +16,8 @@ Create an account through the **Create account** tab; you will enter the player 
 
 Optional: copy `.env.example` to `.env` to override hosts, ports, environment, or database path. Defaults work without an `.env` file. Node 24.7 may print an experimental SQLite warning; this is expected.
 
+To enable Gemini-powered coding questions in the lobby, set `GEMINI_API_KEY` in `.env`. You can also override `GEMINI_MODEL` if you want to target a different Gemini model. The app now prefers `gemini-3.8-flash` and falls back to `gemini-2.5-flash` if a configured model 404s. When the key is missing, the app shows a local fallback question so the lobby still works.
+
 ## Database
 
 The backend creates **`BackEnd/data/game.sqlite`** on first startup. This file contains real local account data and is ignored by Git, along with its SQLite journal files.
@@ -54,6 +56,8 @@ Use the website origin for browser requests. Send JSON for POST requests.
 | POST | `/api/auth/logout` | Revokes the current session; send `{}` |
 
 Successful account responses contain `{ "user": { "id", "username", "createdAt", "isActive" } }`. Errors contain `{ "message": "..." }` and an appropriate HTTP status.
+
+The authenticated `GET /api/question` endpoint returns a coding question object with `question`, `topic`, `difficulty`, `hint`, and `source`. It uses Gemini when `GEMINI_API_KEY` is configured, otherwise it serves a local fallback question.
 
 ## Verify
 

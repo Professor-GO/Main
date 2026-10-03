@@ -125,6 +125,16 @@ input:focus { border-color: #698458; box-shadow: 0 0 0 3px #69845815; outline: n
 .up-next { margin-top: 26px; }
 .up-next > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
 .coming-soon { font-size: 9px; padding: 4px 7px; background: #edf0e5; border-radius: 3px; white-space: nowrap; color: var(--muted); }
+.question-panel { margin-top: 24px; padding: 18px 18px 16px; border: 1px solid #cbd7ba; border-radius: 8px; background: linear-gradient(180deg, #f7f9ef 0%, #eef3e3 100%); box-shadow: 0 8px 18px #30492f0f; }
+.question-panel-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.question-panel h2 { margin: 4px 0 0; font-size: 20px; letter-spacing: -.04em; }
+.question-button { flex: none; padding: 10px 14px; border: 1px solid #c7d0be; border-radius: 5px; background: #fff; color: var(--green); font-size: 12px; font-weight: 650; transition: background .15s, transform .15s; }
+.question-button:hover:not(:disabled) { background: #edf0e6; transform: translateY(-1px); }
+.question-button:active:not(:disabled) { transform: translateY(1px); }
+.question-meta { margin: 12px 0 0; font: 8px "Courier New", monospace; letter-spacing: .08em; text-transform: uppercase; color: #6d7d60; }
+.question-body { margin: 12px 0 0; font-size: 13px; line-height: 1.7; color: var(--ink); }
+.question-hint { margin: 12px 0 0; padding-top: 12px; border-top: 1px dashed #b9cba5; font-size: 11px; line-height: 1.6; color: var(--muted); }
+.question-status { min-height: 16px; margin: 12px 0 0; font-size: 10px; color: var(--muted); }
 .lobby-note { font-size: 11px; line-height: 1.7; color: var(--muted); margin: 18px 0; }
 .secondary-button { margin-top: 18px; border: 1px solid #cbd3c1; background: transparent; color: var(--green); }
 .secondary-button:hover { background: #edf0e6; }
@@ -171,6 +181,7 @@ dialog > .eyebrow { font-size: 8px; padding-right: 10px; }
     .site-footer { padding: 20px 28px; }
     .game-loop p { font-size: 10px; }
     .game-loop { margin-top: 26px; }
+    .question-panel { padding: 16px; }
 }
 @media (max-width: 480px) {
     .site-header { padding: 0 22px; }

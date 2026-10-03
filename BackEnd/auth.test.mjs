@@ -35,7 +35,7 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
     async function start(environment = "test") {
         child = spawn(process.execPath, ["BackEnd/server.mjs"], {
             cwd: root,
-            env: { ...process.env, APP_ENV: environment, FRONTEND_HOST: "127.0.0.1", FRONTEND_PORT: String(frontendPort), BACKEND_HOST: "127.0.0.1", BACKEND_PORT: String(backendPort), DATABASE_PATH: databasePath },
+            env: { ...process.env, APP_ENV: environment, FRONTEND_HOST: "127.0.0.1", FRONTEND_PORT: String(frontendPort), BACKEND_HOST: "127.0.0.1", BACKEND_PORT: String(backendPort), DATABASE_PATH: databasePath, GEMINI_API_KEY: "" },
             stdio: ["ignore", "pipe", "pipe"], windowsHide: true,
         });
         await new Promise((done, reject) => {
@@ -165,6 +165,17 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         assert.equal(result.response.status, 200);
         assert.match(result.response.headers.get("set-cookie"), /Max-Age=0/);
         assert.equal((await api("auth/me", { cookie: userCookie })).response.status, 401);
+    });
+
+    await t.test("authenticated players can request a coding question", async () => {
+        const login = await api("auth/login", { body: { username: "TestPlayer", password } });
+        const result = await api("question", { cookie: login.cookie, headers: { Origin: origin }, method: "GET" });
+        assert.equal(result.response.status, 200);
+        assert.equal(typeof result.data.question, "string");
+        assert.ok(result.data.question.length > 0);
+        assert.equal(typeof result.data.topic, "string");
+        assert.equal(typeof result.data.difficulty, "string");
+        assert.equal(typeof result.data.source, "string");
     });
 
     await t.test("expired or invented sessions are rejected", async () => {
