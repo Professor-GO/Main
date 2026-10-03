@@ -78,12 +78,14 @@ function showLobby(user, focus = true) {
     $("#player-initial").textContent = user.username[0].toUpperCase();
     $("#account-date").textContent = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(user.createdAt));
     $("#account-status").textContent = user.isActive ? "Active" : "Inactive";
+    $("#account-tokens").textContent = new Intl.NumberFormat().format(user.tokens);
     $("#auth-view").hidden = true;
     $("#lobby-view").hidden = false;
     showMessage($("#lobby-message"));
+    $("#lobby-status").textContent = "";
     form.reset();
     resetPasswordVisibility();
-    document.title = `${user.username} · Faculty Arena`;
+    document.title = `${user.username} · Professor-Go`;
     if (focus) $("#lobby-title").focus();
     void loadCodingQuestion();
 }
@@ -169,6 +171,14 @@ form.addEventListener("submit", async (event) => {
     }
 });
 
+// Placeholders until the recruitment and battle pages are designed.
+$("#recruit-button").addEventListener("click", () => {
+    $("#lobby-status").textContent = "The recruitment hall is still being built. Check back soon!";
+});
+$("#battle-button").addEventListener("click", () => {
+    $("#lobby-status").textContent = "The battle arena is still being built. Check back soon!";
+});
+
 $("#logout-button").addEventListener("click", async () => {
     const button = $("#logout-button");
     button.disabled = true;
@@ -176,7 +186,7 @@ $("#logout-button").addEventListener("click", async () => {
         await api("logout", {});
         $("#lobby-view").hidden = true;
         $("#auth-view").hidden = false;
-        document.title = "Faculty Arena — Class is in session";
+        document.title = "Professor-Go — Class is in session";
         setMode("login");
         $("#session-status").textContent = "You’re logged out. See you next class.";
         usernameInput.focus();

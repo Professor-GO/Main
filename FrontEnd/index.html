@@ -4,17 +4,17 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#f8f9f3">
-        <meta name="description" content="Faculty Arena. Recruit your professors, build your dream team, and bring a little friendly rivalry to campus.">
-        <title>Faculty Arena — Class is in session</title>
+        <meta name="description" content="Professor-Go. Recruit your professors, build your dream team, and bring a little friendly rivalry to campus.">
+        <title>Professor-Go — Class is in session</title>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg">
         <link rel="stylesheet" href="/styles.css">
         <script src="/app.js" defer></script>
     </head>
     <body>
         <header class="site-header">
-            <a class="brand" href="/" aria-label="Faculty Arena home">
+            <a class="brand" href="/" aria-label="Professor-Go home">
                 <svg class="brand-mark" viewBox="0 0 40 44" aria-hidden="true"><path d="M2 2h36v25L20 42 2 27Z" fill="currentColor"/><path d="m9 16 11-6 11 6-11 6Z" fill="#d6ed8b"/><path d="M13 21v7l7 4 7-4v-7l-7 4Z" fill="#d6ed8b"/></svg>
-                <span>FACULTY<span class="brand-second">ARENA<span class="brand-dot">.</span></span></span>
+                <span>PROFESSOR<span class="brand-second">-GO<span class="brand-dot">.</span></span></span>
             </a>
             <div class="header-right">
                 <button class="text-button" id="how-to-play" type="button">How it works <span aria-hidden="true">↗</span></button>
@@ -66,10 +66,11 @@
                     <h1 id="lobby-title" tabindex="-1">Welcome to<br>the faculty<span class="accent-dot">.</span></h1>
                     <p class="intro">You’re in, <strong id="player-name"></strong>.<br>Your campus adventure starts here.</p>
                     <div class="player-pass">
-                        <div class="pass-heading"><span class="eyebrow">FACULTY ARENA / PLAYER PASS</span><span class="active-badge">● ACTIVE</span></div>
+                        <div class="pass-heading"><span class="eyebrow">PROFESSOR-GO / PLAYER PASS</span><span class="active-badge">● ACTIVE</span></div>
                         <div class="pass-player"><span class="player-avatar" id="player-initial" aria-hidden="true">P</span><div><span class="field-optional">PLAYER</span><h2 id="pass-name"></h2></div></div>
-                        <dl class="pass-details"><div><dt>Enrolled on</dt><dd id="account-date"></dd></div><div><dt>Account status</dt><dd id="account-status">Active</dd></div></dl>
+                        <dl class="pass-details"><div><dt>Enrolled on</dt><dd id="account-date"></dd></div><div><dt>Account status</dt><dd id="account-status">Active</dd></div><div><dt>Tokens</dt><dd id="account-tokens">0</dd></div></dl>
                     </div>
+
                     <div class="up-next"><p class="eyebrow">NEXT ON THE SYLLABUS</p><div><span>Recruit your first professor</span><span class="coming-soon">Coming soon</span></div><div><span>Build a team & battle</span><span class="coming-soon">Coming soon</span></div></div>
                     <section class="question-panel" aria-labelledby="question-title">
                         <div class="question-panel-top">
@@ -84,6 +85,7 @@
                         <p id="question-hint" class="question-hint" hidden></p>
                         <p id="question-status" class="question-status" role="status"></p>
                     </section>
+
                     <p class="lobby-note">Your account is ready. Recruiting and battles are still being built — check back for your first class.</p>
                     <p id="lobby-message" class="form-message" role="alert" hidden></p>
                     <button class="secondary-button" id="logout-button" type="button">Log out <span aria-hidden="true">↗</span></button>
@@ -116,7 +118,7 @@
                             <span class="level-tag">LV. 01</span>
                         </div>
                         <div class="card-info"><h3>Dr. Vector</h3><p>Always one step ahead.</p><div class="card-move"><span>∑ &nbsp; Calculated strike</span><strong>80 <small>ATK</small></strong></div></div>
-                        <div class="card-bottom"><span>FACULTY ARENA</span><span>001 / MATH</span></div>
+                        <div class="card-bottom"><span>PROFESSOR-GO</span><span>001 / MATH</span></div>
                     </article>
                     <span class="versus" aria-hidden="true">VS<span>✦</span></span>
                     <article class="prof-card byte-card">
@@ -136,7 +138,7 @@
                             <span class="level-tag">LV. 01</span>
                         </div>
                         <div class="card-info"><h3>Prof. Byte</h3><p>It’s not a bug. It’s a move.</p><div class="card-move"><span>&lt;/&gt; &nbsp; Stack overflow</span><strong>95 <small>ATK</small></strong></div></div>
-                        <div class="card-bottom"><span>FACULTY ARENA</span><span>002 / CPSC</span></div>
+                        <div class="card-bottom"><span>PROFESSOR-GO</span><span>002 / CPSC</span></div>
                     </article>
                     <span class="sample-caption">CONCEPT CARDS · YOUR CAMPUS ROSTER IS NEXT</span>
                 </div>

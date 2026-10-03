@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, execFile } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -8,82 +9,117 @@ import { tmpdir } from "node:os";
 import { resolve, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:net";
-import { openDatabase, tokenHash } from "./database.mjs";
+import { DatabaseSync } from "node:sqlite";
+import { openDatabase, tokenHash, userById } from "./database.ts";
+import type { PublicUser } from "./database.ts";
+import { GACHA_POOL, PULL_COST } from "./Professor Gacha System/gacha.ts";
+
+type AccountResponse = { user: PublicUser };
+type ApiOptions = {
+    body?: unknown;
+    cookie?: string;
+    headers?: Record<string, string>;
+    method?: string;
+};
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
-async function freePort() {
+/**
+ * Finds a port that nothing is using, so test servers never clash with a running copy of the app.
+ * @returns A promise for an unused port number on 127.0.0.1.
+ */
+async function freePort(): Promise<number> {
     const server = createServer();
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
-    const port = server.address().port;
-    await new Promise((done) => server.close(done));
-    return port;
+    const address = server.address();
+    await new Promise<void>((done, reject) => server.close((error) => error ? reject(error) : done()));
+    assert.ok(address && typeof address !== "string");
+    return address.port;
 }
 
 test("account lifecycle through the website's backend proxy", { timeout: 30_000 }, async (t) => {
-    const directory = await mkdtemp(join(tmpdir(), "faculty-arena-test-"));
+    const directory = await mkdtemp(join(tmpdir(), "professor-go-test-"));
     const databasePath = join(directory, "accounts.sqlite");
     const frontendPort = await freePort();
     let backendPort = await freePort();
     while (backendPort === frontendPort) backendPort = await freePort();
     const origin = `http://127.0.0.1:${frontendPort}`;
     const password = "correct-horse-42";
-    let child;
-    let db;
+    let child: ChildProcess | undefined;
+    const db = openDatabase(databasePath);
 
+    /**
+     * Starts the app in a child process using the temporary test database, and
+     * waits until it reports that it is ready.
+     * @param environment - The APP_ENV to run with: "test" (default) or "production".
+     * @returns A promise that resolves once the servers are listening.
+     */
     async function start(environment = "test") {
-        child = spawn(process.execPath, ["BackEnd/server.mjs"], {
+        const serverProcess = spawn(process.execPath, ["BackEnd/server.ts"], {
             cwd: root,
             env: { ...process.env, APP_ENV: environment, FRONTEND_HOST: "127.0.0.1", FRONTEND_PORT: String(frontendPort), BACKEND_HOST: "127.0.0.1", BACKEND_PORT: String(backendPort), DATABASE_PATH: databasePath, GEMINI_API_KEY: "" },
             stdio: ["ignore", "pipe", "pipe"], windowsHide: true,
         });
-        await new Promise((done, reject) => {
+        child = serverProcess;
+        await new Promise<void>((done, reject) => {
             let output = "";
             const timer = setTimeout(() => reject(new Error(`Server startup timed out: ${output}`)), 8000);
-            child.stdout.on("data", (data) => {
+            serverProcess.stdout.on("data", (data: Buffer) => {
                 output += data;
                 if (output.includes("Press Ctrl+C")) { clearTimeout(timer); done(); }
             });
-            child.stderr.on("data", (data) => { output += data; });
-            child.once("error", (error) => { clearTimeout(timer); reject(error); });
-            child.once("exit", (code) => { clearTimeout(timer); reject(new Error(`Server exited (${code}): ${output}`)); });
+            serverProcess.stderr.on("data", (data: Buffer) => { output += data; });
+            serverProcess.once("error", (error) => { clearTimeout(timer); reject(error); });
+            serverProcess.once("exit", (code) => { clearTimeout(timer); reject(new Error(`Server exited (${code}): ${output}`)); });
         });
     }
+    /**
+     * Stops the app started by start(), if it is still running.
+     * @returns A promise that resolves once the process has exited.
+     */
     async function stop() {
         if (!child || child.exitCode !== null) return;
         const exited = once(child, "exit");
         child.kill();
         await exited;
     }
-    async function api(path, { body, cookie, headers = {}, method } = {}) {
+    /**
+     * Sends a request to the test app's API through the frontend server, like the website does.
+     * @param path - The route after "/api/", such as "auth/login".
+     * @param options - body: JSON to send (makes it a POST); cookie: the session cookie to send;
+     * headers: extra request headers; method: overrides the HTTP method.
+     * @returns A promise for the raw response, its parsed JSON data (typed as T), and the
+     * session cookie the server set, if any.
+     */
+    async function api<T = Record<string, unknown>>(path: string, { body, cookie, headers = {}, method }: ApiOptions = {}) {
         const response = await fetch(`${origin}/api/${path}`, {
             method: method ?? (body === undefined ? "GET" : "POST"),
             headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...(cookie ? { Cookie: cookie } : {}), ...headers },
             body: body === undefined ? undefined : JSON.stringify(body),
         });
-        const data = await response.json();
+        const data = await response.json() as T;
         return { response, data, cookie: response.headers.get("set-cookie")?.split(";")[0] };
     }
     t.after(async () => {
-        db?.close();
+        db.close();
         await stop();
         // Only remove the test directory created above, within the system temp folder.
         assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + sep));
-        assert.ok(directory.includes("faculty-arena-test-"));
+        assert.ok(directory.includes("professor-go-test-"));
         await rm(directory, { recursive: true, force: true });
     });
     await start();
-    let userCookie;
-    let userId;
+    let userCookie: string | undefined;
+    let userId: number;
 
     await t.test("serves the UI and health; keeps backend files private", async () => {
         const page = await fetch(origin);
         assert.equal(page.status, 200);
-        assert.match(await page.text(), /Faculty Arena/);
+        assert.match(await page.text(), /Professor-Go/);
         const health = await api("health");
         assert.equal(health.data.database, "connected");
-        for (const path of ["/.env", "/BackEnd/data/game.sqlite", "/BackEnd/server.mjs"]) {
+        for (const path of ["/.env", "/BackEnd/data/game.sqlite", "/BackEnd/server.ts", "/BackEnd/schema.sql"]) {
             assert.equal((await fetch(origin + path)).status, 404);
         }
         assert.equal((await api("auth/login")).response.status, 405);
@@ -91,24 +127,28 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
     });
 
     await t.test("signup persists all requested fields and issues an opaque cookie", async () => {
-        const result = await api("auth/register", { body: { username: "TestPlayer", password }, headers: { Origin: origin } });
+        const result = await api<AccountResponse>("auth/register", { body: { username: "TestPlayer", password }, headers: { Origin: origin } });
         assert.equal(result.response.status, 201);
         assert.equal(result.data.user.username, "TestPlayer");
         assert.equal(result.data.user.isActive, true);
         assert.ok(Number.isFinite(Date.parse(result.data.user.createdAt)));
-        assert.deepEqual(Object.keys(result.data.user).sort(), ["createdAt", "id", "isActive", "username"]);
-        assert.match(result.response.headers.get("set-cookie"), /HttpOnly; SameSite=Lax; Path=\/; Max-Age=604800/);
+        assert.equal(result.data.user.tokens, 0);
+        assert.deepEqual(Object.keys(result.data.user).sort(), ["createdAt", "id", "isActive", "tokens", "username"]);
+        assert.match(result.response.headers.get("set-cookie") ?? "", /HttpOnly; SameSite=Lax; Path=\/; Max-Age=604800/);
         userCookie = result.cookie;
+        assert.ok(userCookie);
         userId = result.data.user.id;
-        db = openDatabase(databasePath);
-        const stored = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
+        const stored = userById(db, userId);
+        assert.ok(stored);
         assert.match(stored.password_hash, /^scrypt:[0-9a-f]{32}:[0-9a-f]{128}$/);
         assert.ok(!stored.password_hash.includes(password));
         assert.equal(stored.created_at, result.data.user.createdAt);
         assert.equal(stored.is_active, 1);
+        assert.equal(stored.tokens, 0);
         const session = db.prepare("SELECT * FROM sessions WHERE user_id = ?").get(userId);
+        assert.ok(session);
         assert.equal(session.token_hash, tokenHash(userCookie.split("=")[1]));
-        assert.equal((await api("auth/me", { cookie: userCookie })).data.user.id, userId);
+        assert.equal((await api<AccountResponse>("auth/me", { cookie: userCookie })).data.user.id, userId);
     });
 
     await t.test("usernames are unique without regard to case, including concurrent signups", async () => {
@@ -144,9 +184,38 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
     await t.test("accounts and sessions survive a server restart", async () => {
         await stop();
         await start();
-        const result = await api("auth/me", { cookie: userCookie });
+        const result = await api<AccountResponse>("auth/me", { cookie: userCookie });
         assert.equal(result.response.status, 200);
         assert.equal(result.data.user.id, userId);
+    });
+
+    await t.test("token balances are stored, returned, and never negative", async () => {
+        db.prepare("UPDATE users SET tokens = 25 WHERE id = ?").run(userId);
+        assert.equal((await api<AccountResponse>("auth/me", { cookie: userCookie })).data.user.tokens, 25);
+        assert.throws(() => db.prepare("UPDATE users SET tokens = -1 WHERE id = ?").run(userId), /CHECK constraint failed/);
+        assert.equal(userById(db, userId)?.tokens, 25);
+        db.prepare("UPDATE users SET tokens = 0 WHERE id = ?").run(userId);
+    });
+
+    await t.test("the gacha pool is public and pulls spend the player's tokens", async () => {
+        const pool = await api<{ cost: number; professors: { id: string; pullChance: number }[] }>("gacha/pool");
+        assert.equal(pool.response.status, 200);
+        assert.equal(pool.data.cost, PULL_COST);
+        assert.deepEqual(pool.data.professors.map((professor) => professor.id), GACHA_POOL.map((professor) => professor.id));
+        assert.equal((await api("gacha/pull", { body: {} })).response.status, 401);
+        const broke = await api("gacha/pull", { body: {}, cookie: userCookie });
+        assert.equal(broke.response.status, 409);
+        assert.equal(broke.data.message, `You need ${PULL_COST} tokens to recruit a professor.`);
+
+        db.prepare("UPDATE users SET tokens = ? WHERE id = ?").run(PULL_COST + 3, userId);
+        const pull = await api<AccountResponse & { professor: { id: string } }>("gacha/pull", { body: {}, cookie: userCookie });
+        assert.equal(pull.response.status, 200);
+        assert.equal(pull.data.user.tokens, 3);
+        assert.ok(GACHA_POOL.some((professor) => professor.id === pull.data.professor.id));
+        const owned = db.prepare("SELECT professor_id FROM user_professors WHERE user_id = ?").all(userId);
+        assert.deepEqual(owned.map((row) => row.professor_id), [pull.data.professor.id]);
+        assert.equal((await api("gacha/pull", { body: {}, cookie: userCookie })).response.status, 409);
+        db.prepare("UPDATE users SET tokens = 0 WHERE id = ?").run(userId);
     });
 
     await t.test("inactive accounts cannot sign in or use an existing session", async () => {
@@ -163,7 +232,7 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
     await t.test("logout revokes the session on the server", async () => {
         const result = await api("auth/logout", { body: {}, cookie: userCookie });
         assert.equal(result.response.status, 200);
-        assert.match(result.response.headers.get("set-cookie"), /Max-Age=0/);
+        assert.match(result.response.headers.get("set-cookie") ?? "", /Max-Age=0/);
         assert.equal((await api("auth/me", { cookie: userCookie })).response.status, 401);
     });
 
@@ -188,7 +257,7 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
     await t.test("the account-status command revokes sessions and supports reactivation", async () => {
         const login = await api("auth/login", { body: { username: "TestPlayer", password } });
         for (const status of ["inactive", "active"]) {
-            const result = await promisify(execFile)(process.execPath, ["BackEnd/account-status.mjs", "testplayer", status], {
+            const result = await promisify(execFile)(process.execPath, ["BackEnd/account-status.ts", "testplayer", status], {
                 cwd: root, env: { ...process.env, DATABASE_PATH: databasePath }, windowsHide: true,
             });
             assert.match(result.stdout, new RegExp(`is now ${status}`));
@@ -202,12 +271,40 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         await start("production");
         const result = await api("auth/login", { body: { username: "TestPlayer", password } });
         assert.equal(result.response.status, 200);
-        assert.match(result.response.headers.get("set-cookie"), /; Secure$/);
+        assert.match(result.response.headers.get("set-cookie") ?? "", /; Secure$/);
     });
 
     await t.test("repeated authentication attempts are rate limited", async () => {
-        let status;
+        let status: number | undefined;
         for (let index = 0; index < 61; index++) status = (await api("auth/login", { body: {} })).response.status;
         assert.equal(status, 429);
     });
+});
+
+test("older databases gain a zero token balance without losing accounts", async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), "professor-go-test-"));
+    t.after(async () => {
+        assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + sep));
+        await rm(directory, { recursive: true, force: true });
+    });
+    const databasePath = join(directory, "legacy.sqlite");
+    const legacy = new DatabaseSync(databasePath);
+    legacy.exec(`
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY,
+            username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1))
+        );
+        INSERT INTO users (username, password_hash) VALUES ('Veteran', 'scrypt:aa:bb');
+    `);
+    legacy.close();
+    for (let opening = 0; opening < 2; opening++) {
+        const db = openDatabase(databasePath);
+        const user = userById(db, 1);
+        db.close();
+        assert.equal(user?.username, "Veteran");
+        assert.equal(user?.tokens, 0);
+    }
 });

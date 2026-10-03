@@ -119,7 +119,7 @@ input:focus { border-color: #698458; box-shadow: 0 0 0 3px #69845815; outline: n
 .pass-player { display: flex; align-items: center; gap: 14px; margin: 26px 0; }
 .player-avatar { display: grid; place-items: center; width: 52px; height: 52px; background: var(--green); color: var(--lime); font-size: 25px; font-weight: 700; border-radius: 5px; }
 .pass-player h2 { margin: 3px 0 0; font-size: 20px; letter-spacing: -.04em; overflow-wrap: anywhere; }
-.pass-details { border-top: 1px dashed #b9cba5; padding-top: 15px; display: flex; gap: 32px; margin: 0; font-size: 11px; }
+.pass-details { border-top: 1px dashed #b9cba5; padding-top: 15px; display: flex; flex-wrap: wrap; gap: 12px 32px; margin: 0; font-size: 11px; }
 .pass-details dt { color: var(--muted); margin-bottom: 5px; }
 .pass-details dd { margin: 0; font-weight: 600; }
 .up-next { margin-top: 26px; }
