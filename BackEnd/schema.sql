@@ -46,3 +46,20 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 -- Supports finding or revoking all sessions belonging to an account.
 CREATE INDEX IF NOT EXISTS sessions_user_id ON sessions(user_id);
+
+-- One row per professor a player has recruited. Pulling the same professor twice adds two rows.
+CREATE TABLE IF NOT EXISTS user_professors (
+    id INTEGER PRIMARY KEY,
+
+    -- Removing an account also removes its recruited professors.
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+    -- The professor's id from BackEnd/Professor Gacha System/Professor Pool/professors.ts.
+    professor_id TEXT NOT NULL,
+
+    -- UTC timestamp, automatically recorded when the professor is pulled.
+    pulled_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+-- Supports listing a player's recruited professors.
+CREATE INDEX IF NOT EXISTS user_professors_user_id ON user_professors(user_id);
