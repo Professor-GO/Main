@@ -1,4 +1,6 @@
 import { createServer, request as proxyRequest } from "node:http";
+import type { IncomingMessage, OutgoingHttpHeaders, Server, ServerResponse } from "node:http";
+import type { DatabaseSync } from "node:sqlite";
 import { readFile } from "node:fs/promises";
 import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
@@ -6,13 +8,15 @@ import { resolve } from "node:path";
 import {
     openDatabase, hashPassword, verifyPassword, publicUser,
     createSession, sessionUser, tokenHash, SESSION_SECONDS,
-} from "./database.mjs";
+    userById, userByUsername,
+} from "./database.ts";
+import type { UserRow } from "./database.ts";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
-const servers = [];
-let db;
+const servers: Server[] = [];
+let database: DatabaseSync | undefined;
 
-function portSetting(name, fallback) {
+function portSetting(name: string, fallback: number): number {
     const value = process.env[name] ?? String(fallback);
     const port = Number(value);
     if (!/^\d+$/.test(value) || port < 1 || port > 65535) {
@@ -21,7 +25,7 @@ function portSetting(name, fallback) {
     return port;
 }
 
-function reply(response, status, body, method = "GET", contentType = "application/json; charset=utf-8") {
+function reply(response: ServerResponse, status: number, body: object | string, method = "GET", contentType = "application/json; charset=utf-8"): void {
     response.writeHead(status, {
         "Content-Type": contentType,
         "Cache-Control": "no-store",
@@ -29,21 +33,38 @@ function reply(response, status, body, method = "GET", contentType = "applicatio
         "Referrer-Policy": "same-origin",
         "Content-Security-Policy": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
     });
-    response.end(method === "HEAD" ? undefined : typeof body === "object" && !Buffer.isBuffer(body)
-        ? JSON.stringify(body) : body);
+    response.end(method === "HEAD" ? undefined : typeof body === "string" || Buffer.isBuffer(body)
+        ? body : JSON.stringify(body));
 }
 
-function httpError(status, message) {
-    return Object.assign(new Error(message), { status });
+class HttpError extends Error {
+    status: number;
+
+    constructor(status: number, message: string) {
+        super(message);
+        this.status = status;
+    }
 }
 
-async function readJson(request) {
+function httpError(status: number, message: string): HttpError {
+    return new HttpError(status, message);
+}
+
+function replyError(response: ServerResponse, error: unknown, method = "GET"): void {
+    if (!(error instanceof HttpError)) console.error(error);
+    reply(response, error instanceof HttpError ? error.status : 500, {
+        message: error instanceof HttpError ? error.message : "Something went wrong. Please try again.",
+    }, method);
+}
+
+async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
     if (request.headers["content-type"]?.split(";")[0].trim() !== "application/json") {
         throw httpError(415, "Send the request as JSON.");
     }
     let size = 0;
-    const chunks = [];
-    for await (const chunk of request.iterator({ destroyOnReturn: false })) {
+    const chunks: Buffer[] = [];
+    for await (const data of request.iterator({ destroyOnReturn: false })) {
+        const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
         size += chunk.length;
         if (size > 8192) {
             request.resume();
@@ -52,35 +73,35 @@ async function readJson(request) {
         chunks.push(chunk);
     }
     try {
-        const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+        const body: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
         if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error();
-        return body;
+        return body as Record<string, unknown>;
     } catch {
         throw httpError(400, "Send a valid JSON object.");
     }
 }
 
-function requestToken(request) {
+function requestToken(request: IncomingMessage): string | undefined {
     return request.headers.cookie?.split(";")
         .map((part) => part.trim()).find((part) => part.startsWith("arena_session="))?.slice(14);
 }
 
-function setSessionCookie(response, token, production) {
+function setSessionCookie(response: ServerResponse, token: string, production: boolean): void {
     response.setHeader("Set-Cookie", `arena_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${token ? SESSION_SECONDS : 0}${production ? "; Secure" : ""}`);
 }
 
-function checkOrigin(request) {
+function checkOrigin(request: IncomingMessage): void {
     if (request.headers["sec-fetch-site"] === "cross-site") throw httpError(403, "Use this website to manage your account.");
     if (request.headers.origin) {
-        let host;
+        let host: string | undefined;
         try { host = new URL(request.headers.origin).host; } catch { /* Rejected below. */ }
         if (host !== request.headers.host) throw httpError(403, "Use this website to manage your account.");
     }
 }
 
-function rateLimiter(maximum) {
-    const attempts = new Map();
-    return (request) => {
+function rateLimiter(maximum: number): (request: IncomingMessage) => void {
+    const attempts = new Map<string | undefined, { count: number; until: number }>();
+    return (request: IncomingMessage) => {
         const now = Date.now();
         for (const [key, value] of attempts) if (value.until <= now) attempts.delete(key);
         const key = request.socket.remoteAddress;
@@ -90,9 +111,9 @@ function rateLimiter(maximum) {
     };
 }
 
-async function main() {
+async function main(): Promise<void> {
     try { loadEnvFile(resolve(projectRoot, ".env")); }
-    catch (error) { if (error.code !== "ENOENT") throw error; }
+    catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
 
     const environment = process.env.APP_ENV ?? "development";
     if (!["development", "test", "production"].includes(environment)) {
@@ -104,25 +125,26 @@ async function main() {
     const backendHost = process.env.BACKEND_HOST ?? "127.0.0.1";
     const backendPort = portSetting("BACKEND_PORT", 3001);
     const backendConnectHost = backendHost === "0.0.0.0" ? "127.0.0.1" : backendHost === "::" ? "::1" : backendHost;
-    db = openDatabase(resolve(projectRoot, process.env.DATABASE_PATH ?? "BackEnd/data/game.sqlite"));
+    const db = openDatabase(resolve(projectRoot, process.env.DATABASE_PATH ?? "BackEnd/data/game.sqlite"));
+    database = db;
     const dummyHash = await hashPassword("unused-account-placeholder");
     const backendLimit = rateLimiter(500);
     const frontendLimit = rateLimiter(60);
 
-    const assets = new Map();
+    const assets = new Map<string, { contentType: string; body: Buffer }>();
     for (const [path, filename, contentType] of [
         ["/", "index.html", "text/html; charset=utf-8"],
         ["/styles.css", "styles.css", "text/css; charset=utf-8"],
         ["/app.js", "app.js", "text/javascript; charset=utf-8"],
         ["/favicon.svg", "favicon.svg", "image/svg+xml"],
-    ]) {
+    ] as const) {
         assets.set(path, { contentType, body: await readFile(resolve(projectRoot, "FrontEnd", filename)) });
     }
 
     const backend = createServer(async (request, response) => {
         try {
-            const path = request.url?.split("?")[0];
-            const methods = {
+            const path = request.url?.split("?")[0] ?? "";
+            const methods: Record<string, string[]> = {
                 "/api/health": ["GET", "HEAD"],
                 "/api/auth/me": ["GET"],
                 "/api/auth/register": ["POST"],
@@ -130,7 +152,7 @@ async function main() {
                 "/api/auth/logout": ["POST"],
             };
             if (!Object.hasOwn(methods, path)) throw httpError(404, "Not found.");
-            if (!methods[path].includes(request.method)) {
+            if (!methods[path].includes(request.method ?? "")) {
                 response.setHeader("Allow", methods[path].join(", "));
                 throw httpError(405, "Method not allowed.");
             }
@@ -163,18 +185,19 @@ async function main() {
             if (typeof password !== "string" || password.length < 8 || password.length > 128) {
                 throw httpError(400, "Your password needs 8–128 characters.");
             }
-            let user;
+            let user: UserRow | undefined;
             if (path === "/api/auth/register") {
                 const passwordHash = await hashPassword(password);
                 const inserted = db.prepare("INSERT INTO users (username, password_hash) VALUES (?, ?) ON CONFLICT(username) DO NOTHING")
                     .run(username, passwordHash);
                 if (!inserted.changes) throw httpError(409, "That username is taken. Try another one.");
-                user = db.prepare("SELECT * FROM users WHERE id = ?").get(inserted.lastInsertRowid);
+                user = userById(db, inserted.lastInsertRowid);
+                if (!user) throw new Error("Could not load the new account.");
             } else {
-                user = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
+                user = userByUsername(db, username);
                 const valid = await verifyPassword(password, user?.password_hash ?? dummyHash);
                 if (!user || !valid) throw httpError(401, "That username and password do not match.");
-                user = db.prepare("SELECT * FROM users WHERE id = ?").get(user.id);
+                user = userById(db, user.id);
                 if (!user?.is_active) throw httpError(403, "This account is inactive. Contact the game organizers.");
             }
             const oldToken = requestToken(request);
@@ -182,23 +205,22 @@ async function main() {
             setSessionCookie(response, createSession(db, user.id), production);
             reply(response, path === "/api/auth/register" ? 201 : 200, { user: publicUser(user) });
         } catch (error) {
-            if (!error.status) console.error(error);
-            reply(response, error.status ?? 500, { message: error.status ? error.message : "Something went wrong. Please try again." }, request.method);
+            replyError(response, error, request.method);
         }
     });
 
     const frontend = createServer((request, response) => {
-        const path = request.url?.split("?")[0];
+        const path = request.url?.split("?")[0] ?? "";
         if (path?.startsWith("/api/")) {
             try {
                 if (["/api/auth/login", "/api/auth/register"].includes(path)) frontendLimit(request);
             } catch (error) {
                 request.resume();
                 response.setHeader("Retry-After", "60");
-                return reply(response, error.status, { message: error.message });
+                return replyError(response, error, request.method);
             }
             // Preserve the browser's Host for origin checks and forward session cookies.
-            const headers = { host: request.headers.host };
+            const headers: OutgoingHttpHeaders = { host: request.headers.host };
             for (const name of ["content-type", "content-length", "cookie", "origin", "sec-fetch-site"]) {
                 if (request.headers[name]) headers[name] = request.headers[name];
             }
@@ -206,7 +228,7 @@ async function main() {
                 hostname: backendConnectHost, port: backendPort, path: request.url,
                 method: request.method, headers, timeout: 10_000,
             }, (incoming) => {
-                response.writeHead(incoming.statusCode, incoming.headers);
+                response.writeHead(incoming.statusCode ?? 502, incoming.headers);
                 incoming.pipe(response);
             });
             upstream.on("timeout", () => upstream.destroy(new Error("Backend timeout")));
@@ -218,7 +240,7 @@ async function main() {
             request.pipe(upstream);
             return;
         }
-        if (!["GET", "HEAD"].includes(request.method)) {
+        if (!["GET", "HEAD"].includes(request.method ?? "")) {
             response.setHeader("Allow", "GET, HEAD");
             return reply(response, 405, { message: "Method not allowed." });
         }
@@ -227,29 +249,29 @@ async function main() {
         reply(response, 200, asset.body, request.method, asset.contentType);
     });
 
-    for (const [server, host, port] of [[backend, backendHost, backendPort], [frontend, frontendHost, frontendPort]]) {
+    for (const [server, host, port] of [[backend, backendHost, backendPort], [frontend, frontendHost, frontendPort]] as const) {
         servers.push(server);
-        await new Promise((done, reject) => {
+        await new Promise<void>((done, reject) => {
             server.once("error", reject);
             server.listen(port, host, done);
         });
     }
     const displayHost = frontendHost.includes(":") ? `[${frontendHost}]` : frontendHost;
-    console.log(`Faculty Arena (${environment})`);
+    console.log(`Professor-Go (${environment})`);
     console.log(`Website: http://${displayHost}:${frontendPort}`);
     console.log(`Backend port: ${backendPort} | SQLite accounts ready`);
     console.log("Press Ctrl+C to stop both servers.");
 }
 
-function stop() {
+function stop(): void {
     for (const server of servers) { server.close(); server.closeAllConnections(); }
-    db?.close();
-    db = undefined;
+    database?.close();
+    database = undefined;
 }
 process.once("SIGINT", () => { stop(); process.exit(0); });
 process.once("SIGTERM", () => { stop(); process.exit(0); });
-main().catch((error) => {
-    console.error(`Could not start Faculty Arena: ${error.message}`);
+main().catch((error: unknown) => {
+    console.error(`Could not start Professor-Go: ${error instanceof Error ? error.message : String(error)}`);
     stop();
     process.exitCode = 1;
 });

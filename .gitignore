@@ -1,8 +1,12 @@
 node_modules/
+package-lock.json
 .env
+.env.example
 BackEnd/data/
 artifacts/
 dist/
 coverage/
 *.log
 AGENTS.md
+PROJECT_MEMORY.md
+Hackathon Planning.docx

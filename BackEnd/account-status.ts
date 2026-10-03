@@ -1,11 +1,11 @@
 import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
-import { openDatabase } from "./database.mjs";
+import { openDatabase, userByUsername } from "./database.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 try { loadEnvFile(resolve(root, ".env")); }
-catch (error) { if (error.code !== "ENOENT") throw error; }
+catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
 
 const [username, status] = process.argv.slice(2);
 if (!username || !["active", "inactive"].includes(status)) {
@@ -14,7 +14,7 @@ if (!username || !["active", "inactive"].includes(status)) {
 } else {
     const db = openDatabase(resolve(root, process.env.DATABASE_PATH ?? "BackEnd/data/game.sqlite"));
     try {
-        const user = db.prepare("SELECT id FROM users WHERE username = ?").get(username);
+        const user = userByUsername(db, username);
         if (!user) throw new Error(`No account found for ${username}.`);
         db.exec("BEGIN IMMEDIATE");
         try {
@@ -24,7 +24,7 @@ if (!username || !["active", "inactive"].includes(status)) {
         } catch (error) { db.exec("ROLLBACK"); throw error; }
         console.log(`${username} is now ${status}.`);
     } catch (error) {
-        console.error(error.message);
+        console.error(error instanceof Error ? error.message : String(error));
         process.exitCode = 1;
     } finally { db.close(); }
 }
