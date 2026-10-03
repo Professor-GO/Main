@@ -27,9 +27,11 @@ CREATE TABLE IF NOT EXISTS users (
     -- 1 = active, 0 = inactive. New accounts are active by default.
     is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
 
-    -- Gacha token balance. New accounts start with none; it can never go negative.
-    -- Databases created before this column existed are upgraded in database.ts.
-    tokens INTEGER NOT NULL DEFAULT 0 CHECK (tokens >= 0)
+    -- Gacha token balance; it can never go negative. New accounts start with 50
+    -- (STARTING_TOKENS in database.ts, which signup sets explicitly).
+    -- Databases created before this column existed are upgraded in database.ts,
+    -- and accounts created before then start with 0.
+    tokens INTEGER NOT NULL DEFAULT 50 CHECK (tokens >= 0)
 );
 
 -- One account can have multiple login sessions (for example, on two devices).
@@ -47,19 +49,30 @@ CREATE TABLE IF NOT EXISTS sessions (
 -- Supports finding or revoking all sessions belonging to an account.
 CREATE INDEX IF NOT EXISTS sessions_user_id ON sessions(user_id);
 
--- One row per professor a player has recruited. Pulling the same professor twice adds two rows.
-CREATE TABLE IF NOT EXISTS user_professors (
+-- Each player's inventory: one row per professor they have recruited.
+-- Pulling a professor again adds a copy to the same row. Players spend spare copies to level up.
+-- Databases that still have the older user_professors table are upgraded in database.ts.
+CREATE TABLE IF NOT EXISTS inventory (
+    -- Row ID; also keeps the inventory in the order professors were first recruited.
     id INTEGER PRIMARY KEY,
 
-    -- Removing an account also removes its recruited professors.
+    -- Removing an account also removes its inventory.
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
     -- The professor's id from BackEnd/Professor Gacha System/Professor Pool/professors.ts.
     professor_id TEXT NOT NULL,
 
-    -- UTC timestamp, automatically recorded when the professor is pulled.
-    pulled_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
+    -- The professor's current level. It starts at 1 and rises when the player spends copies.
+    level INTEGER NOT NULL DEFAULT 1 CHECK (level >= 1),
 
--- Supports listing a player's recruited professors.
-CREATE INDEX IF NOT EXISTS user_professors_user_id ON user_professors(user_id);
+    -- Copies of this professor the player owns, including the one in use. Each duplicate pull adds 1;
+    -- levelling up spends the professor's copiesToLevelUp. The player always keeps at least one.
+    copies INTEGER NOT NULL DEFAULT 1 CHECK (copies >= 1),
+
+    -- UTC timestamp, automatically recorded when the professor is first recruited.
+    obtained_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+
+    -- One row per player and professor; duplicates are counted in copies instead.
+    -- This also lets SQLite look up a player's inventory quickly.
+    UNIQUE (user_id, professor_id)
+);

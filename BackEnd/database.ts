@@ -7,6 +7,8 @@ import { promisify } from "node:util";
 const deriveKey = promisify<string, string, number, Buffer>(scrypt);
 const schema = readFileSync(new URL("./schema.sql", import.meta.url), "utf8");
 export const SESSION_SECONDS = 60 * 60 * 24 * 7;
+// Tokens every new account starts with. Keep the users.tokens default in schema.sql the same.
+export const STARTING_TOKENS = 50;
 
 // SQLite returns untyped rows. Keep the account shape at the query boundary.
 export type UserRow = {
@@ -46,7 +48,7 @@ export function openDatabase(filename: string): DatabaseSync {
 
 /**
  * Upgrades databases created by older versions of the app. CREATE TABLE IF NOT EXISTS
- * leaves older tables unchanged, so columns added later are added here.
+ * leaves older tables unchanged, so columns and tables changed later are upgraded here.
  * Safe to run every time the database opens.
  * @param db - The open database to upgrade.
  */
@@ -54,6 +56,24 @@ function migrate(db: DatabaseSync): void {
     const columns = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
     if (!columns.some((column) => column.name === "tokens")) {
         db.exec("ALTER TABLE users ADD COLUMN tokens INTEGER NOT NULL DEFAULT 0 CHECK (tokens >= 0)");
+    }
+    // The inventory table used to be called user_professors, with one row per pull.
+    // Merge each player's pulls of a professor into one level 1 inventory row that counts
+    // them as copies, then remove the old table.
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'user_professors'").get()) {
+        db.exec("BEGIN IMMEDIATE");
+        try {
+            db.exec(`
+                INSERT INTO inventory (user_id, professor_id, copies, obtained_at)
+                    SELECT user_id, professor_id, COUNT(*), MIN(pulled_at) FROM user_professors
+                    GROUP BY user_id, professor_id ORDER BY MIN(id);
+                DROP TABLE user_professors;
+            `);
+            db.exec("COMMIT");
+        } catch (error) {
+            db.exec("ROLLBACK");
+            throw error;
+        }
     }
 }
 

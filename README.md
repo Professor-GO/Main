@@ -33,9 +33,9 @@ Run `npm start` to initialize the database automatically, or run the SQL file ag
 | `password_hash` | Salted scrypt password hash; plaintext passwords are never stored |
 | `created_at` | Account creation timestamp in UTC |
 | `is_active` | `1` for active, `0` for inactive; new accounts default to active |
-| `tokens` | Gacha token balance; new accounts start at `0`, and it can never be negative |
+| `tokens` | Gacha token balance; new accounts start with `50` (`STARTING_TOKENS` in `BackEnd/database.ts`), and it can never be negative |
 
-The `sessions` table stores hashed session tokens, account IDs, and expiry times. The `user_professors` table stores one row per recruited professor (`user_id`, `professor_id`, `pulled_at`); pulling the same professor twice adds two rows. Only public account fields are returned by the API. Cookies use HttpOnly and SameSite=Lax, plus Secure when `APP_ENV=production` (serve the website over HTTPS in that mode).
+The `sessions` table stores hashed session tokens, account IDs, and expiry times. The `inventory` table stores each player's recruited professors: `user_id`, `professor_id`, `level` (starts at 1), `copies` (how many copies the player owns, including the one in use; never below 1), and `obtained_at` (when first recruited). Each player has one row per professor; pulling a professor they already own adds a copy to that row. Databases with the older `user_professors` table are moved into `inventory` automatically on startup, with duplicate pulls counted as copies. Only public account fields are returned by the API. Cookies use HttpOnly and SameSite=Lax, plus Secure when `APP_ENV=production` (serve the website over HTTPS in that mode).
 
 Usernames must contain 3–20 letters, numbers, or underscores. Passwords must contain 8–128 characters. Database queries use bound parameters. Authentication requests have size limits, same-origin checks, and basic in-memory rate limits for the prototype.
 
@@ -50,15 +50,17 @@ Deactivating an account revokes its sessions. Inactive users cannot sign in; rea
 
 ## Professor gacha
 
-The recruitable professors are listed in [`BackEnd/Professor Gacha System/Professor Pool/professors.ts`](BackEnd/Professor%20Gacha%20System/Professor%20Pool/professors.ts). Each entry has an `id`, `name`, `image` path, `avgRating` (1–5), `department` (the professor's element), and `stats` (`health`, `attack`, `defense`, `speed`). The current entries are fictional placeholders, and their image files have not been added yet.
+The recruitable professors are listed in [`BackEnd/Professor Gacha System/Professor Pool/professors.ts`](BackEnd/Professor%20Gacha%20System/Professor%20Pool/professors.ts). Each entry has an `id`, `name`, `image` path, `avgRating` (1–5), `department` (the professor's element), `stats` (`health`, `attack`, `defense`, `speed`), and `copiesToLevelUp` (how many duplicate copies a player spends to level that professor up once). The current entries are fictional placeholders, and their image files have not been added yet.
 
 [`BackEnd/Professor Gacha System/gacha.ts`](BackEnd/Professor%20Gacha%20System/gacha.ts) calculates the rest, so they never need to be entered by hand:
 
 - **Pull chance** is proportional to `1 / avgRating`, so better-rated professors are harder to pull. Chances across the pool add up to 1.
 - **Rarity** comes from `avgRating`: Legendary from 4.5, Epic from 4.0, Rare from 3.0, otherwise Common.
-- Each pull costs `PULL_COST` (10) tokens. The token deduction and the recruited professor are saved in one transaction, so a failed pull never costs tokens.
+- Each pull costs `PULL_COST` (10) tokens. A new professor joins the player's inventory at level 1 with 1 copy; a professor the player already owns gains another copy. The token deduction and the inventory change are saved in one transaction, so a failed pull never costs tokens.
+- **Levelling up** is the player's choice: it spends the professor's `copiesToLevelUp` copies and raises their level by 1. The player always keeps the professor itself, so they need `copiesToLevelUp + 1` copies in total. For example, with `copiesToLevelUp: 2`, a player with 3 copies can level up and is left with 1.
+- A professor's **level** and **copies** are stored in each player's inventory, not in the roster, because the roster is shared by every player. There is no maximum level yet.
 
-The server refuses to start if a roster entry has a duplicate `id`, a rating outside 1–5, an unknown department, or a stat that is not a positive whole number. Do not change a professor's `id` after players have recruited them; it is what `user_professors` stores.
+The server refuses to start if a roster entry has a duplicate `id`, a rating outside 1–5, an unknown department, or a stat or `copiesToLevelUp` that is not a positive whole number. Do not change a professor's `id` after players have recruited them; it is what the `inventory` table stores.
 
 ## API
 
@@ -72,7 +74,11 @@ Use the website origin for browser requests. Send JSON for POST requests.
 | GET | `/api/auth/me` | Returns the authenticated user's public account fields |
 | POST | `/api/auth/logout` | Revokes the current session; send `{}` |
 | GET | `/api/gacha/pool` | Returns `{ "cost", "professors" }`: the pull cost and every professor with `rarity` and `pullChance` |
-| POST | `/api/gacha/pull` | Logged-in players only; send `{}`. Spends tokens and returns `{ "professor", "user" }`, or `409` if the player has too few tokens |
+| POST | `/api/gacha/pull` | Logged-in players only; send `{}`. Spends tokens and returns `{ "item", "isNew", "user" }`, or `409` if the player has too few tokens. `isNew` is `false` when the pull added a copy of a professor the player already owned |
+| GET | `/api/inventory` | Logged-in players only. Returns `{ "inventory" }`: the player's professors, oldest first |
+| POST | `/api/inventory/level-up` | Logged-in players only; send `{ "professorId" }`. Spends copies and returns `{ "item" }`; `404` if the player does not own that professor, `409` if they need more copies |
+
+An inventory item is `{ "level", "copies", "obtainedAt", "professor" }`, where `professor` contains the professor's details from the pool, including `copiesToLevelUp`. A professor can be levelled up when `copies > professor.copiesToLevelUp`.
 
 Successful account responses contain `{ "user": { "id", "username", "createdAt", "isActive", "tokens" } }`. Errors contain `{ "message": "..." }` and an appropriate HTTP status.
 
@@ -86,7 +92,7 @@ npm test
 
 Integration tests start isolated frontend/backend servers and create a temporary database. They cover registration, validation, case-insensitive and concurrent duplicate usernames, password checks, cookies, logout, inactive accounts, expiry, restart persistence, rate limiting, private file protection, gacha odds, and token spending on pulls. They do not use the development database.
 
-The backend files are `BackEnd/server.ts`, `BackEnd/database.ts`, `BackEnd/account-status.ts`, the gacha files under `BackEnd/Professor Gacha System/`, and the tests `BackEnd/auth.test.ts` and `BackEnd/gacha.test.ts`. Local imports include the `.ts` extension, and `tsconfig.json` checks every TypeScript file under `BackEnd/`. Use erasable TypeScript syntax (types, interfaces, and annotations); enums and constructor parameter properties require a separate transpiler and are rejected by this configuration.
+The backend files are `BackEnd/server.ts`, `BackEnd/database.ts`, `BackEnd/account-status.ts`, the gacha files under `BackEnd/Professor Gacha System/`, and the tests `BackEndTest/auth.test.ts` and `BackEndTest/gacha.test.ts`. Local imports include the `.ts` extension, and `tsconfig.json` checks every TypeScript file under `BackEnd/` and `BackEndTest/`. `npm test` runs every `*.test.ts` file in `BackEndTest/`. Use erasable TypeScript syntax (types, interfaces, and annotations); enums and constructor parameter properties require a separate transpiler and are rejected by this configuration.
 
 The original course-template dependencies and lint/format/coverage scripts remain in `package.json`. The legacy `build:lint`, lint, and format tasks still refer to absent `src`/`test` directories; use `npm run typecheck` and `npm test` for the current app.
 
