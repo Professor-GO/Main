@@ -174,7 +174,7 @@ function rateLimiter(maximum: number): (request: IncomingMessage) => void {
         if (++entry.count > maximum) throw httpError(429, "Too many attempts. Please wait a minute and try again.");
     };
 }
-
+// Fallback coding question in case Gemini is unavailable.
 function fallbackCodingQuestion() {
     return {
         source: "fallback",
@@ -208,47 +208,97 @@ function parseGeminiQuestion(text) {
     throw new Error("Gemini returned an unexpected question payload.");
 }
 
-async function createCodingQuestion() {
-    const apiKey = process.env.GEMINI_API_KEY?.trim();
-    if (!apiKey) return fallbackCodingQuestion();
+/**
+ * Builds the Gemini API endpoint URL for a given model.
+ */
+function buildGeminiEndpoint(model: string, apiKey: string): URL {
+    const endpoint = new URL(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`);
+    endpoint.searchParams.set("key", apiKey);
+    return endpoint;
+}
 
-    const configuredModel = process.env.GEMINI_MODEL?.trim();
-    const models = [...new Set([
+/**
+ * Builds the request payload for Gemini.
+ */
+function buildGeminiPayload() {
+    return {
+        contents: [{
+            role: "user",
+            parts: [{
+                text: "Generate one original coding question for a hackathon game about recruiting university professors. Return valid JSON with exactly these keys: question, topic, difficulty, hint. question should be one short paragraph, topic should be a concise programming topic, difficulty should be easy, medium, or hard, and hint should be a single sentence. Do not include markdown or code fences.",
+            }],
+        }],
+        generationConfig: {
+            temperature: 0.8,
+            responseMimeType: "application/json",
+        },
+    };
+}
+
+/**
+ * Fetches a response from Gemini for a specific model.
+ */
+async function fetchFromGemini(endpoint: URL): Promise<string | null> {
+    try {
+        const response = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(buildGeminiPayload()),
+            signal: AbortSignal.timeout(7_500),
+        });
+
+        if (!response.ok) return null;
+
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("");
+        return text || null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Tries each model in sequence until one succeeds.
+ */
+async function tryModels(models: string[], apiKey: string): Promise<string | null> {
+    for (const model of models) {
+        const endpoint = buildGeminiEndpoint(model, apiKey);
+        const text = await fetchFromGemini(endpoint);
+        if (text) return text;
+    }
+    return null;
+}
+
+/**
+ * Gets the list of models to try, in priority order.
+ */
+function getModelsToTry(configuredModel: string | undefined): string[] {
+    return [...new Set([
         configuredModel,
         "gemini-3.8-flash",
         "gemini-3.5-flash-lite",
         "gemini-2.5-flash",
     ])].filter(Boolean);
-    for (const model of models) {
-        try {
-            const endpoint = new URL(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`);
-            endpoint.searchParams.set("key", apiKey);
+}
 
-            const response = await fetch(endpoint, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    contents: [{ role: "user", parts: [{ text: "Generate one original coding question for a hackathon game about recruiting university professors. Return valid JSON with exactly these keys: question, topic, difficulty, hint. question should be one short paragraph, topic should be a concise programming topic, difficulty should be easy, medium, or hard, and hint should be a single sentence. Do not include markdown or code fences." }] }],
-                    generationConfig: {
-                        temperature: 0.8,
-                        responseMimeType: "application/json",
-                    },
-                }),
-                signal: AbortSignal.timeout(7_500),
-            });
+/**
+ * Generates a coding question from Gemini, or falls back to a hardcoded one.
+ */
+async function createCodingQuestion() {
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!apiKey) return fallbackCodingQuestion();
 
-            if (!response.ok) continue;
+    const configuredModel = process.env.GEMINI_MODEL?.trim();
+    const models = getModelsToTry(configuredModel);
 
-            const data = await response.json();
-            const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("");
-            if (!text) continue;
-            return parseGeminiQuestion(text);
-        } catch {
-            continue;
-        }
+    const text = await tryModels(models, apiKey);
+    if (!text) return fallbackCodingQuestion();
+
+    try {
+        return parseGeminiQuestion(text);
+    } catch {
+        return fallbackCodingQuestion();
     }
-
-    return fallbackCodingQuestion();
 }
 
 /**
@@ -297,6 +347,9 @@ async function main(): Promise<void> {
                 "/api/auth/register": ["POST"],
                 "/api/auth/login": ["POST"],
                 "/api/auth/logout": ["POST"],
+                "/api/gacha/pool": ["GET", "HEAD"],
+                "/api/gacha/pull": ["POST"],
+                "/api/question": ["GET"],
             };
             if (!Object.hasOwn(methods, path)) throw httpError(404, "Not found.");
             if (!methods[path].includes(request.method ?? "")) {
