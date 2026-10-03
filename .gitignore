@@ -5,3 +5,4 @@ artifacts/
 dist/
 coverage/
 *.log
+AGENTS.md
