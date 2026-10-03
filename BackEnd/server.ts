@@ -11,11 +11,19 @@ import {
     userById, userByUsername,
 } from "./database.ts";
 import type { UserRow } from "./database.ts";
+import { GACHA_POOL, PULL_COST, pullProfessor } from "./Professor Gacha System/gacha.ts";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const servers: Server[] = [];
 let database: DatabaseSync | undefined;
 
+/**
+ * Reads a port number from an environment variable.
+ * @param name - The environment variable to read, such as "FRONTEND_PORT".
+ * @param fallback - The port to use when the variable is not set.
+ * @returns The port number.
+ * @throws Error if the value is not a whole number from 1 to 65535.
+ */
 function portSetting(name: string, fallback: number): number {
     const value = process.env[name] ?? String(fallback);
     const port = Number(value);
@@ -25,6 +33,14 @@ function portSetting(name: string, fallback: number): number {
     return port;
 }
 
+/**
+ * Sends an HTTP response with the app's standard security and no-caching headers.
+ * @param response - The response to send.
+ * @param status - The HTTP status code, such as 200 or 404.
+ * @param body - An object (sent as JSON), or a string or Buffer (sent as-is).
+ * @param method - The request's method. HEAD requests get headers only, with no body.
+ * @param contentType - The Content-Type header. Defaults to JSON.
+ */
 function reply(response: ServerResponse, status: number, body: object | string, method = "GET", contentType = "application/json; charset=utf-8"): void {
     response.writeHead(status, {
         "Content-Type": contentType,
@@ -37,19 +53,37 @@ function reply(response: ServerResponse, status: number, body: object | string, 
         ? body : JSON.stringify(body));
 }
 
+/** An error whose message is safe to show to the player, with the HTTP status to send. */
 class HttpError extends Error {
     status: number;
 
+    /**
+     * @param status - The HTTP status code to send, such as 400 or 401.
+     * @param message - The message shown to the player.
+     */
     constructor(status: number, message: string) {
         super(message);
         this.status = status;
     }
 }
 
+/**
+ * Shorthand for creating an HttpError, so request handlers can `throw httpError(...)`.
+ * @param status - The HTTP status code to send.
+ * @param message - The message shown to the player.
+ * @returns The new HttpError.
+ */
 function httpError(status: number, message: string): HttpError {
     return new HttpError(status, message);
 }
 
+/**
+ * Sends an error response as JSON `{ message }`. HttpErrors send their own status and
+ * message; any other error is logged and sent as a generic 500 so internal details stay private.
+ * @param response - The response to send.
+ * @param error - The error that was thrown.
+ * @param method - The request's method. HEAD requests get headers only, with no body.
+ */
 function replyError(response: ServerResponse, error: unknown, method = "GET"): void {
     if (!(error instanceof HttpError)) console.error(error);
     reply(response, error instanceof HttpError ? error.status : 500, {
@@ -57,6 +91,13 @@ function replyError(response: ServerResponse, error: unknown, method = "GET"): v
     }, method);
 }
 
+/**
+ * Reads and parses a request's JSON body, limited to 8 KB.
+ * @param request - The incoming request.
+ * @returns A promise for the parsed JSON object.
+ * @throws HttpError 415 if the body is not JSON, 413 if it is too large, or 400 if
+ * it is not a valid JSON object.
+ */
 async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
     if (request.headers["content-type"]?.split(";")[0].trim() !== "application/json") {
         throw httpError(415, "Send the request as JSON.");
@@ -81,15 +122,32 @@ async function readJson(request: IncomingMessage): Promise<Record<string, unknow
     }
 }
 
+/**
+ * Gets the session token from the request's "arena_session" cookie.
+ * @param request - The incoming request.
+ * @returns The raw session token, or undefined if the cookie is missing.
+ */
 function requestToken(request: IncomingMessage): string | undefined {
     return request.headers.cookie?.split(";")
         .map((part) => part.trim()).find((part) => part.startsWith("arena_session="))?.slice(14);
 }
 
+/**
+ * Sets the session cookie on a response. Passing an empty token deletes the cookie.
+ * @param response - The response to add the cookie to.
+ * @param token - The raw session token, or "" to log the browser out.
+ * @param production - When true, the cookie is marked Secure (HTTPS only).
+ */
 function setSessionCookie(response: ServerResponse, token: string, production: boolean): void {
     response.setHeader("Set-Cookie", `arena_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${token ? SESSION_SECONDS : 0}${production ? "; Secure" : ""}`);
 }
 
+/**
+ * Blocks requests sent from other websites, so another site cannot act on a
+ * player's account using their cookie.
+ * @param request - The incoming request.
+ * @throws HttpError 403 if the request came from a different website.
+ */
 function checkOrigin(request: IncomingMessage): void {
     if (request.headers["sec-fetch-site"] === "cross-site") throw httpError(403, "Use this website to manage your account.");
     if (request.headers.origin) {
@@ -99,6 +157,12 @@ function checkOrigin(request: IncomingMessage): void {
     }
 }
 
+/**
+ * Creates a limiter that allows each IP address a set number of requests per minute.
+ * @param maximum - The number of requests allowed per IP address each minute.
+ * @returns A function to call on each request. It throws HttpError 429 once that
+ * request's IP address has gone over the limit.
+ */
 function rateLimiter(maximum: number): (request: IncomingMessage) => void {
     const attempts = new Map<string | undefined, { count: number; until: number }>();
     return (request: IncomingMessage) => {
@@ -111,6 +175,11 @@ function rateLimiter(maximum: number): (request: IncomingMessage) => void {
     };
 }
 
+/**
+ * Starts Professor-Go: loads settings from .env, opens the database, reads the
+ * website files, and starts the frontend and backend servers.
+ * @returns A promise that resolves once both servers are listening.
+ */
 async function main(): Promise<void> {
     try { loadEnvFile(resolve(projectRoot, ".env")); }
     catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
@@ -141,6 +210,8 @@ async function main(): Promise<void> {
         assets.set(path, { contentType, body: await readFile(resolve(projectRoot, "FrontEnd", filename)) });
     }
 
+    // Backend server: handles every /api/ route. Each route checks its method,
+    // then either replies with JSON or throws an HttpError that replyError() sends.
     const backend = createServer(async (request, response) => {
         try {
             const path = request.url?.split("?")[0] ?? "";
@@ -150,6 +221,8 @@ async function main(): Promise<void> {
                 "/api/auth/register": ["POST"],
                 "/api/auth/login": ["POST"],
                 "/api/auth/logout": ["POST"],
+                "/api/gacha/pool": ["GET"],
+                "/api/gacha/pull": ["POST"],
             };
             if (!Object.hasOwn(methods, path)) throw httpError(404, "Not found.");
             if (!methods[path].includes(request.method ?? "")) {
@@ -159,6 +232,9 @@ async function main(): Promise<void> {
             if (path === "/api/health") {
                 db.prepare("SELECT 1").get();
                 return reply(response, 200, { status: "ok", environment, database: "connected" }, request.method);
+            }
+            if (path === "/api/gacha/pool") {
+                return reply(response, 200, { cost: PULL_COST, professors: GACHA_POOL });
             }
             if (path === "/api/auth/me") {
                 const user = sessionUser(db, requestToken(request));
@@ -175,6 +251,13 @@ async function main(): Promise<void> {
                 if (token) db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(tokenHash(token));
                 setSessionCookie(response, "", production);
                 return reply(response, 200, { message: "You have been logged out." });
+            }
+            if (path === "/api/gacha/pull") {
+                const user = sessionUser(db, requestToken(request));
+                if (!user) throw httpError(401, "Please log in to continue.");
+                const pull = pullProfessor(db, user.id);
+                if (!pull) throw httpError(409, `You need ${PULL_COST} tokens to recruit a professor.`);
+                return reply(response, 200, { professor: pull.professor, user: publicUser({ ...user, tokens: pull.tokens }) });
             }
             backendLimit(request);
             const username = typeof body.username === "string" ? body.username.trim() : "";
@@ -209,6 +292,8 @@ async function main(): Promise<void> {
         }
     });
 
+    // Frontend server: forwards /api/ requests to the backend, and serves the
+    // allowlisted website files for everything else.
     const frontend = createServer((request, response) => {
         const path = request.url?.split("?")[0] ?? "";
         if (path?.startsWith("/api/")) {
@@ -263,6 +348,7 @@ async function main(): Promise<void> {
     console.log("Press Ctrl+C to stop both servers.");
 }
 
+/** Shuts down both servers and closes the database. Safe to call more than once. */
 function stop(): void {
     for (const server of servers) { server.close(); server.closeAllConnections(); }
     database?.close();

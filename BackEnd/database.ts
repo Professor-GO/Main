@@ -26,6 +26,12 @@ export type PublicUser = {
     tokens: number;
 };
 
+/**
+ * Opens the SQLite database, creating the file and its folder if needed, and makes
+ * sure all tables from schema.sql exist and are up to date.
+ * @param filename - Path to the database file, or ":memory:" for a temporary in-memory database.
+ * @returns The open database connection. Call close() on it when finished.
+ */
 export function openDatabase(filename: string): DatabaseSync {
     if (filename !== ":memory:") mkdirSync(dirname(filename), { recursive: true });
     const db = new DatabaseSync(filename);
@@ -38,7 +44,12 @@ export function openDatabase(filename: string): DatabaseSync {
     return db;
 }
 
-// CREATE TABLE IF NOT EXISTS leaves older tables unchanged, so add newer columns here.
+/**
+ * Upgrades databases created by older versions of the app. CREATE TABLE IF NOT EXISTS
+ * leaves older tables unchanged, so columns added later are added here.
+ * Safe to run every time the database opens.
+ * @param db - The open database to upgrade.
+ */
 function migrate(db: DatabaseSync): void {
     const columns = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
     if (!columns.some((column) => column.name === "tokens")) {
@@ -46,12 +57,25 @@ function migrate(db: DatabaseSync): void {
     }
 }
 
+/**
+ * Turns a plaintext password into a salted scrypt hash that is safe to store.
+ * @param password - The plaintext password the player typed.
+ * @returns A promise for the hash, formatted "scrypt:<salt hex>:<key hex>".
+ */
 export async function hashPassword(password: string): Promise<string> {
     const salt = randomBytes(16).toString("hex");
     const key = await deriveKey(password, salt, 64);
     return `scrypt:${salt}:${key.toString("hex")}`;
 }
 
+/**
+ * Checks whether a plaintext password matches a stored hash.
+ * Uses a constant-time comparison so response timing does not leak the hash.
+ * @param password - The plaintext password the player typed.
+ * @param storedHash - The hash saved by hashPassword().
+ * @returns A promise for true if the password matches, otherwise false
+ * (including when the stored hash is malformed).
+ */
 export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
     const [algorithm, salt, encodedKey] = storedHash.split(":");
     if (algorithm !== "scrypt" || !salt || !encodedKey) return false;
@@ -60,14 +84,33 @@ export async function verifyPassword(password: string, storedHash: string): Prom
     return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
+/**
+ * Converts a database account row into the shape sent to the website, leaving out
+ * private fields such as the password hash.
+ * @param user - The account row from the users table.
+ * @returns The account's id, username, createdAt, isActive, and tokens.
+ */
 export function publicUser(user: UserRow): PublicUser {
     return { id: user.id, username: user.username, createdAt: user.created_at, isActive: Boolean(user.is_active), tokens: user.tokens };
 }
 
+/**
+ * Hashes a session token with SHA-256. Only this hash is stored, so a copy of the
+ * database cannot be used to log in as anyone.
+ * @param token - The raw session token from the player's cookie.
+ * @returns The hash as a 64-character hex string.
+ */
 export function tokenHash(token: string): string {
     return createHash("sha256").update(token).digest("hex");
 }
 
+/**
+ * Starts a new login session for a player that lasts SESSION_SECONDS, and clears
+ * out any expired sessions.
+ * @param db - The open game database.
+ * @param userId - The id of the player who is logging in.
+ * @returns The raw session token to put in the player's cookie.
+ */
 export function createSession(db: DatabaseSync, userId: number): string {
     const token = randomBytes(32).toString("hex");
     db.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(Date.now());
@@ -76,14 +119,33 @@ export function createSession(db: DatabaseSync, userId: number): string {
     return token;
 }
 
+/**
+ * Looks up an account by its id.
+ * @param db - The open game database.
+ * @param id - The account id.
+ * @returns The account row, or undefined if no account has that id.
+ */
 export function userById(db: DatabaseSync, id: number | bigint): UserRow | undefined {
     return db.prepare("SELECT * FROM users WHERE id = ?").get(id) as UserRow | undefined;
 }
 
+/**
+ * Looks up an account by username, ignoring letter case.
+ * @param db - The open game database.
+ * @param username - The username to find.
+ * @returns The account row, or undefined if no account has that username.
+ */
 export function userByUsername(db: DatabaseSync, username: string): UserRow | undefined {
     return db.prepare("SELECT * FROM users WHERE username = ?").get(username) as UserRow | undefined;
 }
 
+/**
+ * Finds the player who owns a session token.
+ * @param db - The open game database.
+ * @param token - The raw session token from the cookie, or undefined if there is none.
+ * @returns The account row, or undefined if the token is missing, unknown, or
+ * expired, or the account is inactive.
+ */
 export function sessionUser(db: DatabaseSync, token: string | undefined): UserRow | undefined {
     if (!token) return undefined;
     return db.prepare(`
