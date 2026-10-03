@@ -12,6 +12,7 @@ import { createServer } from "node:net";
 import { DatabaseSync } from "node:sqlite";
 import { openDatabase, tokenHash, userById } from "./database.ts";
 import type { PublicUser } from "./database.ts";
+import { GACHA_POOL, PULL_COST } from "./Professor Gacha System/gacha.ts";
 
 type AccountResponse = { user: PublicUser };
 type ApiOptions = {
@@ -23,6 +24,10 @@ type ApiOptions = {
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
+/**
+ * Finds a port that nothing is using, so test servers never clash with a running copy of the app.
+ * @returns A promise for an unused port number on 127.0.0.1.
+ */
 async function freePort(): Promise<number> {
     const server = createServer();
     server.listen(0, "127.0.0.1");
@@ -44,6 +49,12 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
     let child: ChildProcess | undefined;
     const db = openDatabase(databasePath);
 
+    /**
+     * Starts the app in a child process using the temporary test database, and
+     * waits until it reports that it is ready.
+     * @param environment - The APP_ENV to run with: "test" (default) or "production".
+     * @returns A promise that resolves once the servers are listening.
+     */
     async function start(environment = "test") {
         const serverProcess = spawn(process.execPath, ["BackEnd/server.ts"], {
             cwd: root,
@@ -63,12 +74,24 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
             serverProcess.once("exit", (code) => { clearTimeout(timer); reject(new Error(`Server exited (${code}): ${output}`)); });
         });
     }
+    /**
+     * Stops the app started by start(), if it is still running.
+     * @returns A promise that resolves once the process has exited.
+     */
     async function stop() {
         if (!child || child.exitCode !== null) return;
         const exited = once(child, "exit");
         child.kill();
         await exited;
     }
+    /**
+     * Sends a request to the test app's API through the frontend server, like the website does.
+     * @param path - The route after "/api/", such as "auth/login".
+     * @param options - body: JSON to send (makes it a POST); cookie: the session cookie to send;
+     * headers: extra request headers; method: overrides the HTTP method.
+     * @returns A promise for the raw response, its parsed JSON data (typed as T), and the
+     * session cookie the server set, if any.
+     */
     async function api<T = Record<string, unknown>>(path: string, { body, cookie, headers = {}, method }: ApiOptions = {}) {
         const response = await fetch(`${origin}/api/${path}`, {
             method: method ?? (body === undefined ? "GET" : "POST"),
@@ -171,6 +194,27 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         assert.equal((await api<AccountResponse>("auth/me", { cookie: userCookie })).data.user.tokens, 25);
         assert.throws(() => db.prepare("UPDATE users SET tokens = -1 WHERE id = ?").run(userId), /CHECK constraint failed/);
         assert.equal(userById(db, userId)?.tokens, 25);
+        db.prepare("UPDATE users SET tokens = 0 WHERE id = ?").run(userId);
+    });
+
+    await t.test("the gacha pool is public and pulls spend the player's tokens", async () => {
+        const pool = await api<{ cost: number; professors: { id: string; pullChance: number }[] }>("gacha/pool");
+        assert.equal(pool.response.status, 200);
+        assert.equal(pool.data.cost, PULL_COST);
+        assert.deepEqual(pool.data.professors.map((professor) => professor.id), GACHA_POOL.map((professor) => professor.id));
+        assert.equal((await api("gacha/pull", { body: {} })).response.status, 401);
+        const broke = await api("gacha/pull", { body: {}, cookie: userCookie });
+        assert.equal(broke.response.status, 409);
+        assert.equal(broke.data.message, `You need ${PULL_COST} tokens to recruit a professor.`);
+
+        db.prepare("UPDATE users SET tokens = ? WHERE id = ?").run(PULL_COST + 3, userId);
+        const pull = await api<AccountResponse & { professor: { id: string } }>("gacha/pull", { body: {}, cookie: userCookie });
+        assert.equal(pull.response.status, 200);
+        assert.equal(pull.data.user.tokens, 3);
+        assert.ok(GACHA_POOL.some((professor) => professor.id === pull.data.professor.id));
+        const owned = db.prepare("SELECT professor_id FROM user_professors WHERE user_id = ?").all(userId);
+        assert.deepEqual(owned.map((row) => row.professor_id), [pull.data.professor.id]);
+        assert.equal((await api("gacha/pull", { body: {}, cookie: userCookie })).response.status, 409);
         db.prepare("UPDATE users SET tokens = 0 WHERE id = ?").run(userId);
     });
 
