@@ -25,7 +25,11 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 
     -- 1 = active, 0 = inactive. New accounts are active by default.
-    is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1))
+    is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+
+    -- Gacha token balance. New accounts start with none; it can never go negative.
+    -- Databases created before this column existed are upgraded in database.ts.
+    tokens INTEGER NOT NULL DEFAULT 0 CHECK (tokens >= 0)
 );
 
 -- One account can have multiple login sessions (for example, on two devices).

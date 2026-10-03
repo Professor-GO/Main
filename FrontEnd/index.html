@@ -68,9 +68,13 @@
                     <div class="player-pass">
                         <div class="pass-heading"><span class="eyebrow">PROFESSOR-GO / PLAYER PASS</span><span class="active-badge">● ACTIVE</span></div>
                         <div class="pass-player"><span class="player-avatar" id="player-initial" aria-hidden="true">P</span><div><span class="field-optional">PLAYER</span><h2 id="pass-name"></h2></div></div>
-                        <dl class="pass-details"><div><dt>Enrolled on</dt><dd id="account-date"></dd></div><div><dt>Account status</dt><dd id="account-status">Active</dd></div></dl>
+                        <dl class="pass-details"><div><dt>Enrolled on</dt><dd id="account-date"></dd></div><div><dt>Account status</dt><dd id="account-status">Active</dd></div><div><dt>Tokens</dt><dd id="account-tokens">0</dd></div></dl>
                     </div>
-                    <div class="up-next"><p class="eyebrow">NEXT ON THE SYLLABUS</p><div><span>Recruit your first professor</span><span class="coming-soon">Coming soon</span></div><div><span>Build a team & battle</span><span class="coming-soon">Coming soon</span></div></div>
+                    <div class="lobby-actions">
+                        <button class="primary-button" id="recruit-button" type="button"><span>Recruit a professor</span><span aria-hidden="true">✦</span></button>
+                        <button class="primary-button" id="battle-button" type="button"><span>Build a team &amp; battle</span><span aria-hidden="true">⚔︎</span></button>
+                    </div>
+                    <p class="session-status" id="lobby-status" role="status"></p>
                     <p class="lobby-note">Your account is ready. Recruiting and battles are still being built — check back for your first class.</p>
                     <p id="lobby-message" class="form-message" role="alert" hidden></p>
                     <button class="secondary-button" id="logout-button" type="button">Log out <span aria-hidden="true">↗</span></button>

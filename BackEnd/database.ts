@@ -15,6 +15,7 @@ export type UserRow = {
     password_hash: string;
     created_at: string;
     is_active: 0 | 1;
+    tokens: number;
 };
 
 export type PublicUser = {
@@ -22,6 +23,7 @@ export type PublicUser = {
     username: string;
     createdAt: string;
     isActive: boolean;
+    tokens: number;
 };
 
 export function openDatabase(filename: string): DatabaseSync {
@@ -32,7 +34,16 @@ export function openDatabase(filename: string): DatabaseSync {
         PRAGMA busy_timeout = 5000;
     `);
     db.exec(schema);
+    migrate(db);
     return db;
+}
+
+// CREATE TABLE IF NOT EXISTS leaves older tables unchanged, so add newer columns here.
+function migrate(db: DatabaseSync): void {
+    const columns = db.prepare("PRAGMA table_info(users)").all() as { name: string }[];
+    if (!columns.some((column) => column.name === "tokens")) {
+        db.exec("ALTER TABLE users ADD COLUMN tokens INTEGER NOT NULL DEFAULT 0 CHECK (tokens >= 0)");
+    }
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -50,7 +61,7 @@ export async function verifyPassword(password: string, storedHash: string): Prom
 }
 
 export function publicUser(user: UserRow): PublicUser {
-    return { id: user.id, username: user.username, createdAt: user.created_at, isActive: Boolean(user.is_active) };
+    return { id: user.id, username: user.username, createdAt: user.created_at, isActive: Boolean(user.is_active), tokens: user.tokens };
 }
 
 export function tokenHash(token: string): string {
