@@ -1,43 +1,47 @@
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 
-const deriveKey = promisify(scrypt);
+const deriveKey = promisify<string, string, number, Buffer>(scrypt);
+const schema = readFileSync(new URL("./schema.sql", import.meta.url), "utf8");
 export const SESSION_SECONDS = 60 * 60 * 24 * 7;
 
-export function openDatabase(filename) {
+// SQLite returns untyped rows. Keep the account shape at the query boundary.
+export type UserRow = {
+    id: number;
+    username: string;
+    password_hash: string;
+    created_at: string;
+    is_active: 0 | 1;
+};
+
+export type PublicUser = {
+    id: number;
+    username: string;
+    createdAt: string;
+    isActive: boolean;
+};
+
+export function openDatabase(filename: string): DatabaseSync {
     if (filename !== ":memory:") mkdirSync(dirname(filename), { recursive: true });
     const db = new DatabaseSync(filename);
     db.exec(`
         PRAGMA journal_mode = WAL;
-        PRAGMA foreign_keys = ON;
         PRAGMA busy_timeout = 5000;
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY,
-            username TEXT NOT NULL COLLATE NOCASE UNIQUE,
-            password_hash TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-            is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1))
-        );
-        CREATE TABLE IF NOT EXISTS sessions (
-            token_hash TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            expires_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS sessions_user_id ON sessions(user_id);
     `);
+    db.exec(schema);
     return db;
 }
 
-export async function hashPassword(password) {
+export async function hashPassword(password: string): Promise<string> {
     const salt = randomBytes(16).toString("hex");
     const key = await deriveKey(password, salt, 64);
     return `scrypt:${salt}:${key.toString("hex")}`;
 }
 
-export async function verifyPassword(password, storedHash) {
+export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
     const [algorithm, salt, encodedKey] = storedHash.split(":");
     if (algorithm !== "scrypt" || !salt || !encodedKey) return false;
     const expected = Buffer.from(encodedKey, "hex");
@@ -45,15 +49,15 @@ export async function verifyPassword(password, storedHash) {
     return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
-export function publicUser(user) {
+export function publicUser(user: UserRow): PublicUser {
     return { id: user.id, username: user.username, createdAt: user.created_at, isActive: Boolean(user.is_active) };
 }
 
-export function tokenHash(token) {
+export function tokenHash(token: string): string {
     return createHash("sha256").update(token).digest("hex");
 }
 
-export function createSession(db, userId) {
+export function createSession(db: DatabaseSync, userId: number): string {
     const token = randomBytes(32).toString("hex");
     db.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(Date.now());
     db.prepare("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)")
@@ -61,10 +65,18 @@ export function createSession(db, userId) {
     return token;
 }
 
-export function sessionUser(db, token) {
+export function userById(db: DatabaseSync, id: number | bigint): UserRow | undefined {
+    return db.prepare("SELECT * FROM users WHERE id = ?").get(id) as UserRow | undefined;
+}
+
+export function userByUsername(db: DatabaseSync, username: string): UserRow | undefined {
+    return db.prepare("SELECT * FROM users WHERE username = ?").get(username) as UserRow | undefined;
+}
+
+export function sessionUser(db: DatabaseSync, token: string | undefined): UserRow | undefined {
     if (!token) return undefined;
     return db.prepare(`
         SELECT users.* FROM sessions JOIN users ON users.id = sessions.user_id
         WHERE sessions.token_hash = ? AND sessions.expires_at > ? AND users.is_active = 1
-    `).get(tokenHash(token), Date.now());
+    `).get(tokenHash(token), Date.now()) as UserRow | undefined;
 }

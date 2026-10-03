@@ -77,7 +77,7 @@ function showLobby(user, focus = true) {
     showMessage($("#lobby-message"));
     form.reset();
     resetPasswordVisibility();
-    document.title = `${user.username} · Faculty Arena`;
+    document.title = `${user.username} · Professor-Go`;
     if (focus) $("#lobby-title").focus();
 }
 
@@ -137,7 +137,7 @@ $("#logout-button").addEventListener("click", async () => {
         await api("logout", {});
         $("#lobby-view").hidden = true;
         $("#auth-view").hidden = false;
-        document.title = "Faculty Arena — Class is in session";
+        document.title = "Professor-Go — Class is in session";
         setMode("login");
         $("#session-status").textContent = "You’re logged out. See you next class.";
         usernameInput.focus();

@@ -1,9 +1,10 @@
 {
-	"name": "insightubc",
-	"description": "CPSC 310 Course Project",
-	"homepage": "https://github.com/ubccpsc/310/blob/main/README.md#project-license",
+	"name": "professor-go",
+	"description": "Professor-Go: a hackathon game for recruiting and battling university professors",
+	"homepage": "https://github.com/Professor-GO/Main",
 	"author": "Reid Holmes",
 	"private": true,
+	"type": "module",
 	"version": "1.0.0",
 	"engines": {
 		"node": ">= 24 < 25"
@@ -45,15 +46,16 @@
 		"typescript": "5.9.2"
 	},
 	"scripts": {
-		"start": "node BackEnd/server.mjs",
-		"dev": "node BackEnd/server.mjs",
+		"start": "node BackEnd/server.ts",
+		"dev": "node BackEnd/server.ts",
 		"postinstall": "git config core.hooksPath .githooks",
 		"cover": "nyc --reporter text --reporter html yarn run test",
-		"build": "tsc && yarn prettier:check",
-		"build:lint": "tsc && yarn prettier:check && yarn lint:check",
-		"test": "node --test BackEnd/*.test.mjs",
-		"test:auth": "node --test BackEnd/*.test.mjs",
-		"account:status": "node BackEnd/account-status.mjs",
+		"build": "npm run typecheck",
+		"build:lint": "npm run typecheck && yarn prettier:check && yarn lint:check",
+		"typecheck": "tsc --noEmit",
+		"test": "node --test BackEnd/*.test.ts",
+		"test:auth": "node --test BackEnd/*.test.ts",
+		"account:status": "node BackEnd/account-status.ts",
 		"lint:check": "eslint src test --ext .ts",
 		"lint:fix": "eslint src test --ext .ts --fix",
 		"prettier:check": "prettier src/**/*.ts test/**/*.ts --check",
