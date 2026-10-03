@@ -119,12 +119,11 @@ input:focus { border-color: #698458; box-shadow: 0 0 0 3px #69845815; outline: n
 .pass-player { display: flex; align-items: center; gap: 14px; margin: 26px 0; }
 .player-avatar { display: grid; place-items: center; width: 52px; height: 52px; background: var(--green); color: var(--lime); font-size: 25px; font-weight: 700; border-radius: 5px; }
 .pass-player h2 { margin: 3px 0 0; font-size: 20px; letter-spacing: -.04em; overflow-wrap: anywhere; }
-.pass-details { border-top: 1px dashed #b9cba5; padding-top: 15px; display: flex; gap: 32px; margin: 0; font-size: 11px; }
+.pass-details { border-top: 1px dashed #b9cba5; padding-top: 15px; display: flex; flex-wrap: wrap; gap: 12px 32px; margin: 0; font-size: 11px; }
 .pass-details dt { color: var(--muted); margin-bottom: 5px; }
 .pass-details dd { margin: 0; font-weight: 600; }
-.up-next { margin-top: 26px; }
-.up-next > div { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
-.coming-soon { font-size: 9px; padding: 4px 7px; background: #edf0e5; border-radius: 3px; white-space: nowrap; color: var(--muted); }
+.lobby-actions { display: grid; gap: 12px; max-width: 420px; margin-top: 26px; }
+.lobby-actions .primary-button { margin-top: 0; }
 .lobby-note { font-size: 11px; line-height: 1.7; color: var(--muted); margin: 18px 0; }
 .secondary-button { margin-top: 18px; border: 1px solid #cbd3c1; background: transparent; color: var(--green); }
 .secondary-button:hover { background: #edf0e6; }

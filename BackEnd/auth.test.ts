@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { resolve, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:net";
+import { DatabaseSync } from "node:sqlite";
 import { openDatabase, tokenHash, userById } from "./database.ts";
 import type { PublicUser } from "./database.ts";
 
@@ -108,7 +109,8 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         assert.equal(result.data.user.username, "TestPlayer");
         assert.equal(result.data.user.isActive, true);
         assert.ok(Number.isFinite(Date.parse(result.data.user.createdAt)));
-        assert.deepEqual(Object.keys(result.data.user).sort(), ["createdAt", "id", "isActive", "username"]);
+        assert.equal(result.data.user.tokens, 0);
+        assert.deepEqual(Object.keys(result.data.user).sort(), ["createdAt", "id", "isActive", "tokens", "username"]);
         assert.match(result.response.headers.get("set-cookie") ?? "", /HttpOnly; SameSite=Lax; Path=\/; Max-Age=604800/);
         userCookie = result.cookie;
         assert.ok(userCookie);
@@ -119,6 +121,7 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         assert.ok(!stored.password_hash.includes(password));
         assert.equal(stored.created_at, result.data.user.createdAt);
         assert.equal(stored.is_active, 1);
+        assert.equal(stored.tokens, 0);
         const session = db.prepare("SELECT * FROM sessions WHERE user_id = ?").get(userId);
         assert.ok(session);
         assert.equal(session.token_hash, tokenHash(userCookie.split("=")[1]));
@@ -161,6 +164,14 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         const result = await api<AccountResponse>("auth/me", { cookie: userCookie });
         assert.equal(result.response.status, 200);
         assert.equal(result.data.user.id, userId);
+    });
+
+    await t.test("token balances are stored, returned, and never negative", async () => {
+        db.prepare("UPDATE users SET tokens = 25 WHERE id = ?").run(userId);
+        assert.equal((await api<AccountResponse>("auth/me", { cookie: userCookie })).data.user.tokens, 25);
+        assert.throws(() => db.prepare("UPDATE users SET tokens = -1 WHERE id = ?").run(userId), /CHECK constraint failed/);
+        assert.equal(userById(db, userId)?.tokens, 25);
+        db.prepare("UPDATE users SET tokens = 0 WHERE id = ?").run(userId);
     });
 
     await t.test("inactive accounts cannot sign in or use an existing session", async () => {
@@ -213,4 +224,32 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         for (let index = 0; index < 61; index++) status = (await api("auth/login", { body: {} })).response.status;
         assert.equal(status, 429);
     });
+});
+
+test("older databases gain a zero token balance without losing accounts", async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), "professor-go-test-"));
+    t.after(async () => {
+        assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + sep));
+        await rm(directory, { recursive: true, force: true });
+    });
+    const databasePath = join(directory, "legacy.sqlite");
+    const legacy = new DatabaseSync(databasePath);
+    legacy.exec(`
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY,
+            username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1))
+        );
+        INSERT INTO users (username, password_hash) VALUES ('Veteran', 'scrypt:aa:bb');
+    `);
+    legacy.close();
+    for (let opening = 0; opening < 2; opening++) {
+        const db = openDatabase(databasePath);
+        const user = userById(db, 1);
+        db.close();
+        assert.equal(user?.username, "Veteran");
+        assert.equal(user?.tokens, 0);
+    }
 });

@@ -24,7 +24,7 @@ The backend creates **`BackEnd/data/game.sqlite`** on first startup. This file c
 
 The reusable SQLite schema template is **[`BackEnd/schema.sql`](BackEnd/schema.sql)**. It defines the account and session tables, their defaults, constraints, and relationship. The backend loads this file directly, so the template and app use the same schema. It contains no account data and can be committed to Git.
 
-Run `npm start` to initialize the database automatically, or run the SQL file against a SQLite database using your preferred database tool. Running it again preserves existing rows. Editing a `CREATE TABLE IF NOT EXISTS` definition does not modify an existing table; changes to existing columns need a separate migration.
+Run `npm start` to initialize the database automatically, or run the SQL file against a SQLite database using your preferred database tool. Running it again preserves existing rows. Editing a `CREATE TABLE IF NOT EXISTS` definition does not modify an existing table; changes to existing columns need a separate migration. Columns added later, such as `tokens`, are added to older databases automatically by `BackEnd/database.ts` on startup.
 
 | `users` column | Purpose |
 | --- | --- |
@@ -33,6 +33,7 @@ Run `npm start` to initialize the database automatically, or run the SQL file ag
 | `password_hash` | Salted scrypt password hash; plaintext passwords are never stored |
 | `created_at` | Account creation timestamp in UTC |
 | `is_active` | `1` for active, `0` for inactive; new accounts default to active |
+| `tokens` | Gacha token balance; new accounts start at `0`, and it can never be negative |
 
 The `sessions` table stores hashed session tokens, account IDs, and expiry times. Only public account fields are returned by the API. Cookies use HttpOnly and SameSite=Lax, plus Secure when `APP_ENV=production` (serve the website over HTTPS in that mode).
 
@@ -59,7 +60,7 @@ Use the website origin for browser requests. Send JSON for POST requests.
 | GET | `/api/auth/me` | Returns the authenticated user's public account fields |
 | POST | `/api/auth/logout` | Revokes the current session; send `{}` |
 
-Successful account responses contain `{ "user": { "id", "username", "createdAt", "isActive" } }`. Errors contain `{ "message": "..." }` and an appropriate HTTP status.
+Successful account responses contain `{ "user": { "id", "username", "createdAt", "isActive", "tokens" } }`. Errors contain `{ "message": "..." }` and an appropriate HTTP status.
 
 ## Verify
 
