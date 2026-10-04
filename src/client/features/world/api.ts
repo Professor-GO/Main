@@ -1,5 +1,5 @@
 import { ApiError, record, request } from "../../api/request";
-import type { LegendaryProfessor } from "./game";
+import type { LegendaryProfessor } from "./Game Mechanics/game";
 
 /**
  * Loads the Legendary professors who can appear on the campus map, from the public gacha pool.

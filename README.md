@@ -117,13 +117,13 @@ Pool responses include `{ cost, professors, cages }`. Pull responses are `{ kind
 
 ### Campus map
 
-The lobby's **Explore the campus** button opens a 2.5D (isometric) open world, drawn on a canvas. It runs entirely in the browser:
+The lobby's **Explore the campus** button opens a top-down open world, drawn on a canvas. It runs entirely in the browser:
 
 - The world is 5 × 5 screens of 12 × 12 tiles. The player starts at their house in the middle screen (C3) and walks in 8 directions with WASD, the arrow keys, or the on-screen pad.
 - Walking off a screen's edge arrives at the opposite edge of the next screen; walking off the world's edge wraps around to the other side. Signposts on each edge name the next screen.
-- Scenery is generated from a fixed seed, so the map is the same on every visit. Blocking scenery stays off each screen's outer ring, so every screen can be crossed.
+- Scenery is generated from a fixed seed, so the map is the same on every visit. Blocking scenery stays off each screen's outer ring, so every screen can be crossed. Only a tree's trunk blocks the player; they can walk under its leaves, which then hide them.
 - Legendary professors (from `GET /api/gacha/pool`) appear at random away from the player and never at home, at most 3 at once. Walking up to one shows an encounter card; battles are not built yet. Spawns are not saved or server-checked; they should move to the server once encounters give rewards.
 
-Rules (layout, walking, wrapping, collisions, spawns) are in `src/client/features/world/world.ts` with tests in `features/world/tests/`. Drawing is in `renderer.ts`, the game loop in `game.ts`, and the page in `pages/WorldPage/`. Only the artwork imported by `features/world/art.ts` (`Assets/outdoor/` and the professors' front pictures) is published; the player and house are drawn in code as placeholders.
+Game mechanics live in `src/client/features/world/Game Mechanics/`: the rules (layout, walking, wrapping, collisions, spawns, encounters) in `world.ts` with tests in `tests/`, and the game loop in `game.ts`. Future battle and health rules belong there too. Drawing is in `features/world/renderer.ts`, and the page in `pages/WorldPage/`. Only the artwork imported by `features/world/art.ts` (`Assets/outdoor/` and the professors' front pictures) is published; the player and house are drawn in code as placeholders.
 
 Question correctness and rewards remain server-owned. A correct first answer awards one token atomically with the recorded choice. Same-choice retries are idempotent; changed answers are rejected. A lost response enables only explicit same-choice retry in the UI, not automatic resubmission. React renders generated/player content as text.

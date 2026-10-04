@@ -11,6 +11,7 @@ import {
   SCREEN_TILES,
   SPAWNING,
   START,
+  TREE_KINDS,
   WALK_SPEED,
   WORLD_SCREENS,
   WORLD_TILES,
@@ -19,6 +20,7 @@ import {
   directionFor,
   findEncounter,
   isBlocked,
+  isUnderCanopy,
   pickSpawnPoint,
   screenName,
   screenOf,
@@ -67,8 +69,17 @@ test("the world is 5 × 5 screens, and the player starts at home in the middle",
   assert.equal(screenName(HOME_SCREEN), "C3");
   assert.equal(screenName({ col: 0, row: 0 }), "A1");
   assert.equal(screenName({ col: 4, row: 4 }), "E5");
-  // The player starts on their doorstep, not inside a wall or the mailbox.
-  assert.equal(isBlocked(createWorldMap(), START), false);
+  // The player starts on their doorstep, not inside a wall or the mailbox, and can step
+  // straight off it to the left, right, or down.
+  const map = createWorldMap();
+  assert.equal(isBlocked(map, START), false);
+  for (const direction of ["e", "w", "s"] as const) {
+    const moved = walkFor(map, START, direction, 0.5);
+    assert.ok(
+      wrappedDistance(START, moved) > 1.5,
+      `blocked walking ${direction} from the doorstep`,
+    );
+  }
 });
 
 test("eight directions: each key or pair of keys walks a different way, all at the same speed", () => {
@@ -89,6 +100,12 @@ test("eight directions: each key or pair of keys walks a different way, all at t
   );
   // Up, left, and right together is just up.
   assert.equal(directionFor(press("ulr")), "n");
+  // Seen from above, up is straight up the screen (-y) and right is straight right (+x).
+  assert.deepEqual(DIRECTION_VECTORS.n, { x: 0, y: -1 });
+  assert.deepEqual(DIRECTION_VECTORS.e, { x: 1, y: 0 });
+  assert.deepEqual(DIRECTION_VECTORS.s, { x: 0, y: 1 });
+  assert.deepEqual(DIRECTION_VECTORS.w, { x: -1, y: 0 });
+  assert.ok(DIRECTION_VECTORS.ne.x > 0 && DIRECTION_VECTORS.ne.y < 0);
   const vectors = Object.values(DIRECTION_VECTORS);
   assert.equal(
     new Set(
@@ -105,32 +122,38 @@ test("eight directions: each key or pair of keys walks a different way, all at t
 });
 
 test("walking off the edge of a screen arrives at the opposite edge of the next screen", () => {
-  // Start near the south-east edge of the home screen (x close to the end of column C).
+  // Start near the right edge of the home screen (x close to the end of column C).
   const nearEdge = { x: 3 * SCREEN_TILES - 0.1, y: 30 };
-  const across = walkFor(OPEN_MAP, nearEdge, "se", 0.1);
+  const across = walkFor(OPEN_MAP, nearEdge, "e", 0.1);
   assert.deepEqual(screenOf(nearEdge), HOME_SCREEN);
   assert.deepEqual(screenOf(across), { col: 3, row: 2 });
-  // It lands just inside the next screen's opposite (north-west) edge.
+  // It lands just inside the next screen's opposite (left) edge, at the same height.
   assert.ok(across.x - 3 * SCREEN_TILES < 0.5);
+  assert.equal(across.y, 30);
   // And straight back again.
-  assert.deepEqual(screenOf(walkFor(OPEN_MAP, across, "nw", 0.2)), HOME_SCREEN);
+  assert.deepEqual(screenOf(walkFor(OPEN_MAP, across, "w", 0.2)), HOME_SCREEN);
+  // Off the top edge, onto the screen above.
+  assert.deepEqual(
+    screenOf(walkFor(OPEN_MAP, { x: 30, y: 2 * SCREEN_TILES + 0.1 }, "n", 0.1)),
+    { col: 2, row: 1 },
+  );
 });
 
 test("walking off the edge of the whole map wraps around to the opposite side", () => {
   assert.equal(wrap(-0.5), WORLD_TILES - 0.5);
   assert.equal(wrap(WORLD_TILES + 1), 1);
-  // Off the north-west edge of column A, onto column E.
-  const west = walkFor(OPEN_MAP, { x: 0.1, y: 30 }, "nw", 0.1);
+  // Off the left edge of column A, onto column E.
+  const west = walkFor(OPEN_MAP, { x: 0.1, y: 30 }, "w", 0.1);
   assert.deepEqual(screenOf(west), { col: 4, row: 2 });
   assert.ok(west.x > WORLD_TILES - 0.5);
-  // Off the south-west edge of row 5, onto row 1.
-  const south = walkFor(OPEN_MAP, { x: 30, y: WORLD_TILES - 0.1 }, "sw", 0.1);
+  // Off the bottom edge of row 5, onto row 1.
+  const south = walkFor(OPEN_MAP, { x: 30, y: WORLD_TILES - 0.1 }, "s", 0.1);
   assert.deepEqual(screenOf(south), { col: 2, row: 0 });
   // Off a corner, onto the diagonally opposite corner screen.
   const corner = walkFor(
     OPEN_MAP,
     { x: WORLD_TILES - 0.05, y: WORLD_TILES - 0.05 },
-    "s",
+    "se",
     0.1,
   );
   assert.deepEqual(screenOf(corner), { col: 0, row: 0 });
@@ -139,7 +162,7 @@ test("walking off the edge of the whole map wraps around to the opposite side", 
     wrappedDistance({ x: 0.2, y: 10 }, { x: WORLD_TILES - 0.2, y: 10 }) < 0.5,
   );
   // Walking all the way around the world comes back to the start.
-  const lap = walkFor(OPEN_MAP, { x: 5, y: 5 }, "se", WORLD_TILES / WALK_SPEED);
+  const lap = walkFor(OPEN_MAP, { x: 5, y: 5 }, "e", WORLD_TILES / WALK_SPEED);
   assert.ok(wrappedDistance(lap, { x: 5, y: 5 }) < 0.1);
 });
 
@@ -241,14 +264,14 @@ test("every open spot on every screen can be reached by walking from its edges",
 
 test("scenery and the house block the player, who slides along them instead of sticking", () => {
   const map = createWorldMap();
-  // Walking from the doorstep straight at the front wall stops at the wall.
-  const stopped = walkFor(map, START, "ne", 3);
+  // Walking from the doorstep straight up at the front wall stops at the wall.
+  const stopped = walkFor(map, START, "n", 3);
   assert.equal(stopped.x, START.x);
   assert.ok(stopped.y - HOUSE.y >= 1.5 + PLAYER_RADIUS - 1e-9);
   assert.ok(stopped.y - HOUSE.y < 1.5 + PLAYER_RADIUS + 0.1);
   assert.equal(isBlocked(map, { x: HOUSE.x, y: HOUSE.y }), true);
   // Walking diagonally into the wall slides along it rather than stopping.
-  const slid = walkFor(map, { x: HOUSE.x - 1, y: START.y }, "n", 1);
+  const slid = walkFor(map, { x: HOUSE.x - 1, y: START.y }, "nw", 1);
   assert.ok(
     slid.x < HOUSE.x - 1 - 0.5,
     "the player should keep moving along the wall",
@@ -261,6 +284,42 @@ test("scenery and the house block the player, who slides along them instead of s
   assert.equal(isBlocked(map, flowers), false);
 });
 
+test("only a tree's trunk blocks: the player walks under its leaves, which hide them", () => {
+  const map = createWorldMap();
+  const trees = ALL_SCREENS.flatMap(buildScreen).filter((prop) =>
+    TREE_KINDS.includes(prop.kind),
+  );
+  assert.ok(trees.length > 20);
+  for (const tree of trees) {
+    // The trunk itself blocks.
+    assert.equal(isBlocked(map, tree), true, `${tree.kind} trunk should block`);
+    // Just behind the trunk (up the screen), under the leaves, is open ground...
+    const behind = { x: tree.x, y: tree.y - 0.8 };
+    assert.equal(
+      isBlocked(map, behind),
+      false,
+      `${tree.kind} leaves should not block`,
+    );
+    // ...where the tree hides the player, because the tree is drawn after them. In front of
+    // the trunk (down the screen), this tree does not hide them. (Another tree lower down
+    // might, so this checks the tree on its own.)
+    const alone: WorldMap = { propsOn: () => [tree] };
+    assert.equal(isUnderCanopy(alone, behind), true);
+    assert.equal(isUnderCanopy(alone, { x: tree.x, y: tree.y + 0.6 }), false);
+  }
+  // The player can walk from below a tree, around its trunk, to stand under its leaves.
+  const tree = trees.find(
+    (candidate) =>
+      !isBlocked(map, { x: candidate.x + 0.6, y: candidate.y + 0.6 }),
+  )!;
+  let at = { x: tree.x + 0.6, y: tree.y + 0.6 };
+  at = walkFor(map, at, "n", 0.4);
+  assert.ok(at.y < tree.y, "walked past the trunk");
+  assert.equal(isUnderCanopy({ propsOn: () => [tree] }, at), true);
+  // Nothing on the home screen hangs over the doorstep where the player starts.
+  assert.equal(isUnderCanopy(map, START), false);
+});
+
 test("Legendary professors appear in open places, away from the player and never at home", () => {
   const map = createWorldMap();
   const random = seededRandom(42);
@@ -270,6 +329,8 @@ test("Legendary professors appear in open places, away from the player and never
     assert.notDeepEqual(screenOf(point), HOME_SCREEN);
     assert.ok(wrappedDistance(point, START) >= SPAWNING.minDistance);
     assert.equal(isBlocked(map, point, 0.6), false);
+    // Never under a tree, where the leaves would hide them.
+    assert.equal(isUnderCanopy(map, point), false);
   }
   // With nowhere open, it gives up instead of looping forever.
   const blocked: WorldMap = {

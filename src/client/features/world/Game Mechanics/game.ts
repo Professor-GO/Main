@@ -7,7 +7,7 @@ import {
   CANVAS_WIDTH,
   createImageCache,
   drawScene,
-} from "./renderer";
+} from "../renderer";
 import {
   SPAWNING,
   START,
