@@ -1,20 +1,32 @@
 # Professor-Go
 
-A hackathon prototype for a university professor collection and battle game. Players will recruit professors through token-based gacha draws and build teams to battle. Token generation, recruiting, and combat are future work. The professors shown on the login screen are fictional concept cards.
+A hackathon prototype for a university professor collection and battle game. Players will recruit professors through token-based gacha draws and build teams to battle. Correct quiz answers earn tokens, and the backend supports recruiting professors and basic battle rules. The recruitment and battle pages are future work. The professors shown on the login screen are fictional concept cards.
 
 ## Run locally
 
-Use Node.js **24.x**. The backend is written in TypeScript and uses Node's built-in TypeScript execution and SQLite support:
+Use Node.js **24.x**. Vite runs and builds the vanilla frontend; the TypeScript API uses oRPC (hosted in Express) and SQLite. Install dependencies and start both development servers:
 
 ```sh
+npm install
+npm run dev
+```
+
+Open **http://127.0.0.1:3000**. Vite serves the frontend with live updates and proxies `/api/` requests to the API on port 3001, preserving session cookies and origin checks. Ctrl+C stops both development servers. No separate database service is needed. The individual commands are `npm run dev:frontend` and `npm run dev:backend` if you prefer two terminals.
+
+To build and run the deployment version:
+
+```sh
+npm run build
 npm start
 ```
 
-Open **http://127.0.0.1:3000**. Run `npm install` once first: the servers use Express. No separate database service is needed. The frontend runs on port 3000 and proxies `/api/` requests to the backend on port 3001.
+`npm run build` checks TypeScript and runs Vite, producing `dist/index.html` and optimized assets in `dist/assets/`. `npm start` serves that build and the API on the same ports. Rebuild after frontend changes. Node runs backend `.ts` files directly; no backend JavaScript is emitted. `npm run typecheck` includes the backend, tests, and `vite.config.ts`.
 
-Node runs the `.ts` files directly; there is no compilation step before starting the app. Running the app does not check types. Install the development dependencies with `npm install` and use `npm run typecheck` to check the backend and tests with strict TypeScript settings. `npm run build` runs the same check without generating JavaScript files. The frontend remains HTML, CSS, and browser JavaScript.
+For a frontend-only hosting service, use **build command `npm run build`** and **output directory `dist`**. Route `/api` at that website's origin to the deployed Node backend and set `BETTER_AUTH_URL` to the public website address. The SQLite file needs persistent backend storage. Vite produces the deployment files; a hosting provider has not been configured. See [Vite's deployment guide](https://vite.dev/guide/static-deploy.html).
 
-Create an account through the **Create account** tab; you will enter the player lobby immediately. Login, logout, password visibility, session restoration, and account status checks are implemented. Accounts, passwords, and sessions are handled by [Better Auth](https://www.better-auth.com) (set up in `BackEnd/auth.ts`). Sessions last seven days and survive server restarts.
+`npm run preview` checks the built frontend locally with Vite on port 3000; run `npm run dev:backend` in another terminal for its API. Stop other servers using those ports first. Preview is for checking a build; use `npm start` or your hosting service for deployment.
+
+Create an account through the **Create account** tab; you will enter the player lobby immediately. Login, logout, password visibility, session restoration, and account status checks are implemented. Accounts, passwords, and sessions are handled by [Better Auth](https://www.better-auth.com) (set up in `BackEnd/Persistence Layer/auth.ts`). Sessions last seven days and survive server restarts.
 
 Optional: create a local `.env` file in the project root to override hosts, ports, environment, or database path. Defaults work without an `.env` file. Set `BETTER_AUTH_SECRET` to a long random value (for example the output of `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`); it signs session cookies, and changing it logs everyone out. Without it, development uses a built-in, public secret, and `APP_ENV=production` refuses to start. `BETTER_AUTH_URL` can set the website's public address; it defaults to `http://FRONTEND_HOST:FRONTEND_PORT`. Node 24.7 may print an experimental SQLite warning; this is expected.
 
@@ -22,20 +34,24 @@ To enable Gemini-powered coding questions on the Get tokens page, set `GEMINI_AP
 
 ## Database
 
-The backend creates **`BackEnd/data/game.sqlite`** on first startup. This file contains real local account data and is ignored by Git, along with its SQLite journal files.
+The backend creates **`BackEnd/Persistence Layer/data/game.sqlite`** on first startup. This file contains real local account data and is ignored by Git, along with its SQLite journal files.
 
-Player accounts live in Better Auth's tables, which `BackEnd/auth.ts` creates and upgrades on startup:
+All saved player state lives under `BackEnd/Persistence Layer/`: `database.ts` opens SQLite; `auth.ts` manages accounts and sessions; `inventory.ts` stores professors, copies, levels, and token spending; `questions.ts` and `questions.sql` store quiz attempts and rewards; `schema.sql` defines inventory; `account-status.ts` provides the local account command. HTTP cookie handling stays in `Express/session.ts`.
+
+When updating an older checkout, stop the server and move the entire `BackEnd/data` directory (including SQLite journal files and backups) to `BackEnd/Persistence Layer/data` before starting again. Do not replace or delete an existing database. Update an explicit `DATABASE_PATH` in `.env` if it points at the old location; custom paths are still supported. This workspace has already been moved and verified.
+
+Player accounts live in Better Auth's tables, which `BackEnd/Persistence Layer/auth.ts` creates and upgrades on startup:
 
 | Table | Purpose |
 | --- | --- |
-| `user` | One row per player: `id` (random text id), `username` (stored lowercase, so names are unique without regard to case), `displayUsername` (original casing), a hidden placeholder `email` (see below), `createdAt`, and two game fields: `tokens` (gacha balance; new accounts start with `50`, `STARTING_TOKENS` in `BackEnd/auth.ts`, and it can never be negative) and `isActive` |
+| `user` | One row per player: `id` (random text id), `username` (stored lowercase, so names are unique without regard to case), `displayUsername` (original casing), a hidden placeholder `email` (see below), `createdAt`, and two game fields: `tokens` (gacha balance; new accounts start with `50`, `STARTING_TOKENS` in `BackEnd/Persistence Layer/auth.ts`, and it can never be negative) and `isActive` |
 | `account` | The salted scrypt password hash for each player; plaintext passwords are never stored |
 | `session` | One row per login, with its token and expiry |
 | `verification` | Used by Better Auth features such as email verification (unused for now) |
 
 Better Auth requires an email for every account, but players only choose a username and password. Each player gets a hidden placeholder email such as `testplayer@players.professor-go.invalid`; it is never shown and cannot receive mail (`.invalid` is a reserved domain).
 
-The game's own tables are in **[`BackEnd/schema.sql`](BackEnd/schema.sql)**, which the backend loads directly. It contains no account data and can be committed to Git. Run `npm start` to initialize the database automatically. Running it again preserves existing rows. Editing a `CREATE TABLE IF NOT EXISTS` definition does not modify an existing table; changes to existing columns need a separate migration.
+The game's own tables are in **[`BackEnd/Persistence Layer/schema.sql`](BackEnd/Persistence%20Layer/schema.sql)**, which the backend loads directly. It contains no account data and can be committed to Git. Run `npm start` to initialize the database automatically. Running it again preserves existing rows. Editing a `CREATE TABLE IF NOT EXISTS` definition does not modify an existing table; changes to existing columns need a separate migration.
 
 The `inventory` table stores each player's recruited professors: `user_id` (the Better Auth user id), `professor_id`, `level` (starts at 1), `copies` (how many copies the player owns, including the one in use; never below 1), and `obtained_at` (when first recruited). Each player has one row per professor; pulling a professor they already own adds a copy to that row. Only public account fields are returned by the API. Cookies (`professor-go.session_token`) use HttpOnly and SameSite=Lax, plus Secure when `APP_ENV=production` (serve the website over HTTPS in that mode).
 
@@ -66,9 +82,21 @@ The recruitable professors are listed in [`BackEnd/Professor Gacha System/Profes
 
 The server refuses to start if a roster entry has a duplicate `id`, a rating outside 1–5, an unknown department, or a stat or `copiesToLevelUp` that is not a positive whole number. Do not change a professor's `id` after players have recruited them; it is what the `inventory` table stores.
 
+## Game Engine
+
+Combat rules live in [`BackEnd/Game Engine/battle.ts`](BackEnd/Game%20Engine/battle.ts) and [`damage.ts`](BackEnd/Game%20Engine/damage.ts). All future fighting, movement, collision, map simulation, and pathfinding logic belongs under `BackEnd/Game Engine/`; database storage stays in `Persistence Layer` and HTTP routes stay in `Express`.
+
+Damage is `Math.floor(attacker.attack / defender.defense)`. Remaining health is `Math.max(0, currentHealth - damage)`. For example, attack 95 against defense 30 deals 3 damage, taking 100 health to 97. Defense must be greater than zero, and combat values must be valid integers. Attack below defense deals zero damage; there is no forced minimum damage.
+
+`createBattle(playerProfessor, opponentProfessor)` creates an independent fight with full health. Speed determines the first turn, with the player going first on a tie. `attack(battle, side)` returns a new battle state and a damage event, switches turns, and declares the winner when health reaches zero. Finished battles reject further attacks. If neither professor can damage the other, the battle is a draw. Inventory level is recorded if supplied but does not scale stats yet.
+
+These functions implement the battle engine; they are not connected to a battle API or frontend page yet. Teams, department advantages, stat scaling, movement, maps, and pathfinding still need game rules. See the [engine usage example](BackEnd/Game%20Engine/README.md).
+
 ## API
 
 Use the website origin for browser requests. Send JSON for POST requests.
+
+The API is built with [oRPC](https://orpc.dev): every endpoint below is an oRPC procedure in `BackEnd/oRPC/procedures/`, collected in `BackEnd/oRPC/router.ts`, with request bodies checked by [zod](https://zod.dev). oRPC's OpenAPI handler serves each procedure at the REST path shown, so the website calls it with plain `fetch`. New endpoints must be added as oRPC procedures too (see the comment at the top of `router.ts`).
 
 | Method | Route | Behavior |
 | --- | --- | --- |
@@ -86,7 +114,9 @@ An inventory item is `{ "level", "copies", "obtainedAt", "professor" }`, where `
 
 Successful account responses contain `{ "user": { "id", "username", "createdAt", "isActive", "tokens" } }`. Errors contain `{ "message": "..." }` and an appropriate HTTP status.
 
-The authenticated `GET /api/question` endpoint returns a multiple-choice coding question: `question`, `topic`, `difficulty`, `choices` (four different answer options), `answerIndex` (the position of the correct option, starting at 0), `explanation`, and `source` (`gemini` or `fallback`). The choices are shuffled on every request. It uses Gemini when `GEMINI_API_KEY` is configured, otherwise it serves a local fallback question. The lobby's **Get tokens** button opens a page that shows the question, lets the player pick an answer, and then reveals the correct one. Correct answers do not award tokens yet, and the answer is checked in the browser, so token rewards will need the server to check answers first.
+The authenticated `GET /api/question` endpoint returns `id`, `question`, `topic`, `difficulty`, `choices`, and `source` (`gemini` or `fallback`). The answer and explanation stay in the database until submission. The **Get tokens** page sends `POST /api/question/answer` with `{ "questionId", "selectedIndex" }` (choice index 0-3). The server checks the saved answer and awards **1 token for a correct first answer**, including fallback questions. Wrong answers earn 0. The reply includes `correct`, `answerIndex`, `explanation`, `tokensAwarded`, `tokens`, and `alreadyAnswered`. The page immediately updates the balance.
+
+Each question belongs to the player who requested it and expires after 30 minutes if unanswered. The answer and token update commit together in SQLite, so concurrent submissions and restarts cannot duplicate rewards. Retrying the same choice returns its result with `tokensAwarded: 0`; changing an answer after submitting is rejected.
 
 ## Verify
 
@@ -96,9 +126,9 @@ npm run typecheck
 npm test
 ```
 
-Integration tests start isolated frontend/backend servers and create a temporary database. They cover registration, validation, case-insensitive and concurrent duplicate usernames, password checks, cookies, logout, inactive accounts, expiry, restart persistence, rate limiting, private file protection, gacha odds, and token spending on pulls. They do not use the development database.
+The test pre-scripts build the Vite frontend first. Integration tests start isolated frontend/backend servers and create a temporary database. They cover registration, validation, case-insensitive and concurrent duplicate usernames, password checks, cookies, logout, inactive accounts, expiry, restart persistence, rate limiting, private file protection, gacha odds, token spending on pulls, quiz rewards, repeated/concurrent answer submissions, question ownership, expiry, and reward rollback on a failed write. Edge-case tests in `BackEndTest/pull.test.ts` and `BackEndTest/signup.test.ts` cover the draw (long-run odds, draws with replacement, rolls on segment edges), exact and short token balances, rollback when a pull cannot be saved, rejected pull requests never spending tokens, username and password boundaries, trimming, ignored extra sign-up fields, private fields staying out of responses, and simultaneous sign-ups. They start the backend app in the test process with an in-memory database (`BackEndTest/test-server.ts`). None of the tests use the development database.
 
-The backend files are `BackEnd/server.ts` (loads settings and starts both servers), `BackEnd/auth.ts` (Better Auth setup), the Express apps under `BackEnd/Express/` (`backend.ts` with the API, `frontend.ts` serving the website and proxying `/api/`, `http.ts` and `session.ts` with shared middleware, and the API routes in `routes/`), `BackEnd/database.ts`, `BackEnd/account-status.ts`, `BackEnd/Gemini.ts` (coding questions), the gacha files under `BackEnd/Professor Gacha System/`, and the tests `BackEndTest/auth.test.ts`, `BackEndTest/gacha.test.ts`, and `BackEndTest/gemini.test.ts`. Local imports include the `.ts` extension, and `tsconfig.json` checks every TypeScript file under `BackEnd/` and `BackEndTest/`. `npm test` runs every `*.test.ts` file in `BackEndTest/`. Use erasable TypeScript syntax (types, interfaces, and annotations); enums and constructor parameter properties require a separate transpiler and are rejected by this configuration.
+The backend files are `BackEnd/server.ts` (loads settings and starts both servers), `BackEnd/Persistence Layer/auth.ts` (Better Auth setup), the oRPC API under `BackEnd/oRPC/` (`base.ts` with shared context, errors, and middleware; `procedures/` with every endpoint; `router.ts`; and `handler.ts`, which serves it), the Express apps under `BackEnd/Express/` (`backend.ts` hosting the oRPC API, `frontend.ts` serving the website and proxying `/api/`, `http.ts` with security headers, body limits, and error replies, and `session.ts` with the website's rate limit), `BackEnd/rate-limit.ts`, `BackEnd/Persistence Layer/database.ts`, `BackEnd/Persistence Layer/account-status.ts`, `BackEnd/Gemini.ts` (coding questions), the gacha files under `BackEnd/Professor Gacha System/`, and the tests under `BackEndTest/`, including `questions.test.ts` for quiz rewards. Local imports include the `.ts` extension, and `tsconfig.json` checks every TypeScript file under `BackEnd/` and `BackEndTest/`, plus `vite.config.ts`. `npm test` runs every `*.test.ts` file in `BackEndTest/`. Use erasable TypeScript syntax (types, interfaces, and annotations); enums and constructor parameter properties require a separate transpiler and are rejected by this configuration.
 
 The original course-template dependencies and lint/format/coverage scripts remain in `package.json`. The legacy `build:lint`, lint, and format tasks still refer to absent `src`/`test` directories; use `npm run typecheck` and `npm test` for the current app.
 

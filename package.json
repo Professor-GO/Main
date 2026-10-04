@@ -10,13 +10,16 @@
 		"node": ">= 24 < 25"
 	},
 	"dependencies": {
+		"@orpc/openapi": "1.15.4",
+		"@orpc/server": "1.15.4",
 		"better-auth": "1.7.7",
 		"cors": "2.8.5",
 		"decimal.js": "10.6.0",
 		"express": "5.1.0",
 		"fs-extra": "11.3.1",
 		"http-status-codes": "2.3.0",
-		"jszip": "3.10.1"
+		"jszip": "3.10.1",
+		"zod": "4.6.5"
 	},
 	"devDependencies": {
 		"@tsconfig/node24": "24.0.1",
@@ -31,22 +34,30 @@
 		"chai": "4.3.4",
 		"chai-as-promised": "7.1.1",
 		"chai-http": "4.4.0",
+		"concurrently": "10.0.5",
 		"mocha": "11.7.1",
 		"nyc": "17.1.0",
 		"prettier": "3.6.2",
 		"supertest": "7.1.4",
 		"ts-node": "10.9.2",
-		"typescript": "5.9.2"
+		"typescript": "5.9.2",
+		"vite": "8.3.2"
 	},
 	"scripts": {
 		"start": "node BackEnd/server.ts",
-		"dev": "node BackEnd/server.ts",
+		"dev": "concurrently --kill-others --names api,web \"npm:dev:backend\" \"npm:dev:frontend\"",
+		"dev:backend": "node BackEnd/server.ts --api-only",
+		"dev:frontend": "vite",
+		"preview": "vite preview",
 		"postinstall": "git config core.hooksPath .githooks",
 		"cover": "nyc --reporter text --reporter html yarn run test",
-		"build": "npm run typecheck",
+		"build": "npm run typecheck && npm run build:frontend",
+		"build:frontend": "vite build",
 		"build:lint": "npm run typecheck && yarn prettier:check && yarn lint:check",
 		"typecheck": "tsc --noEmit",
+		"pretest": "npm run build:frontend",
 		"test": "node --test \"BackEndTest/**/*.test.ts\"",
+		"pretest:auth": "npm run build:frontend",
 		"test:auth": "node --test BackEndTest/auth.test.ts",
 		"account:status": "node \"BackEnd/Persistence Layer/account-status.ts\"",
 		"lint:check": "eslint src test --ext .ts",

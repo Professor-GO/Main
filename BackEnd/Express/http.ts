@@ -47,15 +47,6 @@ export function createApp(): express.Express {
 }
 
 /**
- * Creates an Express router with the same exact route matching as createApp(). Routers
- * do not inherit the app's settings, so every router should be made with this.
- * @returns The new router.
- */
-export function createRouter(): express.Router {
-    return express.Router({ caseSensitive: true, strict: true });
-}
-
-/**
  * Middleware that adds the app's standard security and no-caching headers to every response.
  * Routes can still replace Content-Type.
  */
@@ -68,20 +59,6 @@ export const securityHeaders: RequestHandler = (_request, response, next) => {
     });
     next();
 };
-
-/**
- * Middleware that only lets the listed HTTP methods through. Express answers HEAD with
- * GET routes by default, so HEAD must be listed to be allowed.
- * @param methods - The allowed methods, such as ["GET", "HEAD"].
- * @returns Middleware that sends 405 with an Allow header for any other method.
- */
-export function allowMethods(...methods: string[]): RequestHandler {
-    return (request, response, next) => {
-        if (methods.includes(request.method)) return next();
-        response.set("Allow", methods.join(", "));
-        next(httpError(405, "Method not allowed."));
-    };
-}
 
 // Reads JSON bodies up to MAX_BODY_BYTES. Only objects and arrays are accepted.
 const parseJson = express.json({ limit: MAX_BODY_BYTES, strict: true, type: "application/json" });

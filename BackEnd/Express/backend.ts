@@ -1,15 +1,16 @@
-// The backend Express app: every /api/ route. The website reaches it through the
-// frontend app's proxy (see frontend.ts).
+// The backend Express app. Every /api/ endpoint is an oRPC procedure (see BackEnd/oRPC/);
+// Express adds the security headers, the 404 for unknown paths, and error replies.
+// The website reaches it through the frontend app's proxy (see frontend.ts).
 
 import type { DatabaseSync } from "node:sqlite";
 import type express from "express";
 import type { Auth } from "../Persistence Layer/auth.ts";
-import { allowMethods, createApp, createRouter, errorHandler, notFound } from "./http.ts";
-import { authRoutes } from "./routes/auth.ts";
-import { gachaRoutes } from "./routes/gacha.ts";
-import { questionRoutes } from "./routes/question.ts";
+import { initializeQuestions } from "../Persistence Layer/questions.ts";
+import { orpcMiddleware } from "../oRPC/handler.ts";
+import { createAttemptLimiter } from "../rate-limit.ts";
+import { createApp, errorHandler, notFound } from "./http.ts";
 
-/** What the API routes need from server.ts. */
+/** What the API needs from server.ts. */
 export type AppContext = {
     // The open game database.
     db: DatabaseSync;
@@ -20,22 +21,17 @@ export type AppContext = {
 };
 
 /**
- * Creates the backend app with every API route. Unknown routes get 404 and wrong methods
- * get 405; errors are sent as JSON `{ message }`.
- * @param context - The database and settings the routes use.
+ * Creates the backend app with every API procedure. Unknown paths get 404 and wrong
+ * methods get 405; errors are sent as JSON `{ message }`.
+ * @param context - The database and settings the procedures use.
  * @returns The app, ready to pass to http.createServer().
  */
-export function createBackendApp(context: AppContext): express.Express {
+export function createBackendApp({ db, auth, environment }: AppContext): express.Express {
+    initializeQuestions(db);
+    // Generous limit for the backend itself; the website adds a stricter one per player.
+    const allowAccountAttempt = createAttemptLimiter(500);
     const app = createApp();
-    const health = createRouter();
-
-    // Reports that the server and database are working.
-    health.route("/health").all(allowMethods("GET", "HEAD")).get((_request, response) => {
-        context.db.prepare("SELECT 1").get();
-        response.json({ status: "ok", environment: context.environment, database: "connected" });
-    });
-
-    app.use("/api", health, authRoutes(context), gachaRoutes(context), questionRoutes(context));
+    app.use(orpcMiddleware((request) => ({ request, db, auth, environment, allowAccountAttempt })));
     app.use(notFound);
     app.use(errorHandler);
     return app;

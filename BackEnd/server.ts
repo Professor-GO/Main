@@ -4,7 +4,7 @@
 import { createServer } from "node:http";
 import type { Server } from "node:http";
 import type { DatabaseSync } from "node:sqlite";
-import { readFile } from "node:fs/promises";
+import { access } from "node:fs/promises";
 import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
@@ -12,7 +12,6 @@ import { DEFAULT_DATABASE_PATH, openDatabase } from "./Persistence Layer/databas
 import { createAuth, DEVELOPMENT_SECRET } from "./Persistence Layer/auth.ts";
 import { createBackendApp } from "./Express/backend.ts";
 import { createFrontendApp } from "./Express/frontend.ts";
-import type { Asset } from "./Express/frontend.ts";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const servers: Server[] = [];
@@ -35,25 +34,7 @@ function portSetting(name: string, fallback: number): number {
 }
 
 /**
- * Reads the website files into memory. Only these paths are ever served.
- * @returns The files by the path they are served at.
- */
-async function loadAssets(): Promise<Map<string, Asset>> {
-    const assets = new Map<string, Asset>();
-    for (const [path, filename, contentType] of [
-        ["/", "index.html", "text/html; charset=utf-8"],
-        ["/styles.css", "styles.css", "text/css; charset=utf-8"],
-        ["/app.js", "app.js", "text/javascript; charset=utf-8"],
-        ["/favicon.svg", "favicon.svg", "image/svg+xml"],
-    ] as const) {
-        assets.set(path, { contentType, body: await readFile(resolve(projectRoot, "FrontEnd", filename)) });
-    }
-    return assets;
-}
-
-/**
- * Starts Professor-Go: loads settings from .env, opens the database, reads the
- * website files, and starts the frontend and backend servers.
+ * Starts the API and, unless --api-only is passed for Vite development, serves the built website.
  * @returns A promise that resolves once both servers are listening.
  */
 async function main(): Promise<void> {
@@ -77,15 +58,21 @@ async function main(): Promise<void> {
     if (!secret) throw new Error("Set BETTER_AUTH_SECRET in .env to a long random value before running in production.");
     const displayHost = frontendHost.includes(":") ? `[${frontendHost}]` : frontendHost;
     const baseURL = process.env.BETTER_AUTH_URL?.trim() || `http://${displayHost}:${frontendPort}`;
+    const apiOnly = process.argv.includes("--api-only");
+    const distDirectory = resolve(projectRoot, "dist");
+    if (!apiOnly) {
+        try { await access(resolve(distDirectory, "index.html")); }
+        catch { throw new Error("Frontend build missing. Run `npm run build` first, or use `npm run dev` for Vite development."); }
+    }
 
     const db = openDatabase(resolve(projectRoot, process.env.DATABASE_PATH ?? DEFAULT_DATABASE_PATH));
     database = db;
     const auth = await createAuth(db, { baseURL, secret, production });
 
     const backend = createBackendApp({ db, auth, environment });
-    const frontend = createFrontendApp({ assets: await loadAssets(), backendHost: backendConnectHost, backendPort });
-
-    for (const [app, host, port] of [[backend, backendHost, backendPort], [frontend, frontendHost, frontendPort]] as const) {
+    const listeners = [{ app: backend, host: backendHost, port: backendPort }];
+    if (!apiOnly) listeners.push({ app: createFrontendApp({ distDirectory, backendHost: backendConnectHost, backendPort }), host: frontendHost, port: frontendPort });
+    for (const { app, host, port } of listeners) {
         const server = createServer(app);
         servers.push(server);
         await new Promise<void>((done, reject) => {
@@ -94,7 +81,7 @@ async function main(): Promise<void> {
         });
     }
     console.log(`Professor-Go (${environment})`);
-    console.log(`Website: http://${displayHost}:${frontendPort}`);
+    console.log(`Website: http://${displayHost}:${frontendPort}${apiOnly ? " (Vite frontend)" : " (Vite build)"}`);
     console.log(`Backend port: ${backendPort} | SQLite accounts ready`);
     console.log("Press Ctrl+C to stop both servers.");
 }

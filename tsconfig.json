@@ -11,6 +11,7 @@
 		"types": ["node"]
 	},
 	"include": [
+		"vite.config.ts",
 		"BackEnd/**/*.ts",
 		"BackEndTest/**/*.ts"
 	],
