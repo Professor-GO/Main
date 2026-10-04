@@ -275,13 +275,28 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
 
     await t.test("authenticated players can request a coding question", async () => {
         const login = await api("auth/login", { body: { username: "TestPlayer", password } });
-        const result = await api<{ question: string; topic: string; difficulty: string; source: string }>("question", { cookie: login.cookie, headers: { Origin: origin }, method: "GET" });
+        type Question = { question: string; topic: string; difficulty: string; source: string; choices: string[]; answerIndex: number; explanation: string };
+        const result = await api<Question>("question", { cookie: login.cookie, headers: { Origin: origin }, method: "GET" });
         assert.equal(result.response.status, 200);
         assert.equal(typeof result.data.question, "string");
         assert.ok(result.data.question.length > 0);
         assert.equal(typeof result.data.topic, "string");
         assert.equal(typeof result.data.difficulty, "string");
         assert.equal(typeof result.data.source, "string");
+        // Multiple choice: four different options, and answerIndex points at one of them.
+        assert.equal(result.data.choices.length, 4);
+        assert.equal(new Set(result.data.choices).size, 4);
+        assert.ok(Number.isInteger(result.data.answerIndex) && result.data.answerIndex >= 0 && result.data.answerIndex < 4);
+        assert.ok(result.data.explanation.length > 0);
+
+        // The fallback question's correct answer moves around instead of always being first.
+        const positions = new Set<number>();
+        for (let attempt = 0; attempt < 20; attempt++) {
+            const again = await api<Question>("question", { cookie: login.cookie, headers: { Origin: origin }, method: "GET" });
+            assert.equal(again.data.choices[again.data.answerIndex], result.data.choices[result.data.answerIndex]);
+            positions.add(again.data.answerIndex);
+        }
+        assert.ok(positions.size > 1);
     });
 
     await t.test("expired or invented sessions are rejected", async () => {
