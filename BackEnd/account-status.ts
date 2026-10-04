@@ -8,10 +8,13 @@ try { loadEnvFile(resolve(root, ".env")); }
 catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
 
 const [username, status] = process.argv.slice(2);
+
+// Check that the username and status are valid. If not, print usage instructions and exit with an error code.
 if (!username || !["active", "inactive"].includes(status)) {
     console.error("Usage: npm run account:status -- <username> <active|inactive>");
     process.exitCode = 1;
 } else {
+    // Open the database and update the user's account status. can change to different database if needed. The database is locked during this operation to prevent race conditions.
     const db = openDatabase(resolve(root, process.env.DATABASE_PATH ?? "BackEnd/data/game.sqlite"));
     try {
         const user = userByUsername(db, username);

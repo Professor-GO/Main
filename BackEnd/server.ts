@@ -7,11 +7,11 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import {
     openDatabase, hashPassword, verifyPassword, publicUser,
-    createSession, sessionUser, tokenHash, SESSION_SECONDS,
+    createSession, sessionUser, tokenHash, SESSION_SECONDS, STARTING_TOKENS,
     userById, userByUsername,
 } from "./database.ts";
 import type { UserRow } from "./database.ts";
-import { GACHA_POOL, PULL_COST, pullProfessor } from "./Professor Gacha System/gacha.ts";
+import { GACHA_POOL, PULL_COST, inventoryFor, levelUpProfessor, pullProfessor } from "./Professor Gacha System/gacha.ts";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const servers: Server[] = [];
@@ -349,6 +349,8 @@ async function main(): Promise<void> {
                 "/api/auth/logout": ["POST"],
                 "/api/gacha/pool": ["GET", "HEAD"],
                 "/api/gacha/pull": ["POST"],
+                "/api/inventory": ["GET"],
+                "/api/inventory/level-up": ["POST"],
                 "/api/question": ["GET"],
             };
             if (!Object.hasOwn(methods, path)) throw httpError(404, "Not found.");
@@ -362,6 +364,11 @@ async function main(): Promise<void> {
             }
             if (path === "/api/gacha/pool") {
                 return reply(response, 200, { cost: PULL_COST, professors: GACHA_POOL });
+            }
+            if (path === "/api/inventory") {
+                const user = sessionUser(db, requestToken(request));
+                if (!user) throw httpError(401, "Please log in to continue.");
+                return reply(response, 200, { inventory: inventoryFor(db, user.id) });
             }
             if (path === "/api/auth/me") {
                 const user = sessionUser(db, requestToken(request));
@@ -396,7 +403,18 @@ async function main(): Promise<void> {
                 if (!user) throw httpError(401, "Please log in to continue.");
                 const pull = pullProfessor(db, user.id);
                 if (!pull) throw httpError(409, `You need ${PULL_COST} tokens to recruit a professor.`);
-                return reply(response, 200, { professor: pull.professor, user: publicUser({ ...user, tokens: pull.tokens }) });
+                return reply(response, 200, { item: pull.item, isNew: pull.isNew, user: publicUser({ ...user, tokens: pull.tokens }) });
+            }
+            if (path === "/api/inventory/level-up") {
+                const user = sessionUser(db, requestToken(request));
+                if (!user) throw httpError(401, "Please log in to continue.");
+                const result = typeof body.professorId === "string" ? levelUpProfessor(db, user.id, body.professorId) : undefined;
+                if (!result) throw httpError(404, "You don't have that professor yet.");
+                if (!result.levelledUp) {
+                    const missing = result.item.professor.copiesToLevelUp + 1 - result.item.copies;
+                    throw httpError(409, `Collect ${missing} more ${missing === 1 ? "copy" : "copies"} of ${result.item.professor.name} to level them up.`);
+                }
+                return reply(response, 200, { item: result.item });
             }
             backendLimit(request);
             const username = typeof body.username === "string" ? body.username.trim() : "";
@@ -410,8 +428,9 @@ async function main(): Promise<void> {
             let user: UserRow | undefined;
             if (path === "/api/auth/register") {
                 const passwordHash = await hashPassword(password);
-                const inserted = db.prepare("INSERT INTO users (username, password_hash) VALUES (?, ?) ON CONFLICT(username) DO NOTHING")
-                    .run(username, passwordHash);
+                // Set the starting balance explicitly: databases created before it changed still default to 0.
+                const inserted = db.prepare("INSERT INTO users (username, password_hash, tokens) VALUES (?, ?, ?) ON CONFLICT(username) DO NOTHING")
+                    .run(username, passwordHash, STARTING_TOKENS);
                 if (!inserted.changes) throw httpError(409, "That username is taken. Try another one.");
                 user = userById(db, inserted.lastInsertRowid);
                 if (!user) throw new Error("Could not load the new account.");

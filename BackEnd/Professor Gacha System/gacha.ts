@@ -13,6 +13,21 @@ export type Professor = ProfessorEntry & {
     pullChance: number;
 };
 
+// One professor in a player's inventory, with every copy of them the player owns.
+export type InventoryItem = {
+    // The professor's current level, starting at 1. Raised by spending copies with levelUpProfessor().
+    level: number;
+    // How many copies of this professor the player owns, including the one in use. Always at least 1.
+    copies: number;
+    // When the player first recruited this professor (UTC).
+    obtainedAt: string;
+    // The professor's details from the gacha pool, including copiesToLevelUp.
+    professor: Professor;
+};
+
+// An inventory row as SQLite returns it.
+type InventoryRow = { professor_id: string; level: number; copies: number; obtained_at: string };
+
 /**
  * Decides a professor's rarity tier from their rating. Better-rated professors
  * are harder to pull, so they are also rarer.
@@ -33,7 +48,7 @@ export function rarityFor(avgRating: number): Rarity {
  * @param entries - The roster to prepare, such as PROFESSOR_POOL from professors.ts.
  * @returns A copy of every entry with its `rarity` and `pullChance` added, in the same order.
  * @throws Error if the roster is empty, or an entry has a repeated id, a rating outside
- * 1–5, an unknown department, or a stat that is not a positive whole number.
+ * 1–5, an unknown department, or a stat or copiesToLevelUp that is not a positive whole number.
  */
 export function buildPool(entries: readonly ProfessorEntry[]): Professor[] {
     const ids = new Set<string>();
@@ -42,11 +57,13 @@ export function buildPool(entries: readonly ProfessorEntry[]): Professor[] {
             : !(professor.avgRating >= 1 && professor.avgRating <= 5) ? "needs an avgRating from 1 to 5"
             : !DEPARTMENTS.includes(professor.department) ? "has an unknown department"
             : !Object.values(professor.stats).every((stat) => Number.isInteger(stat) && stat > 0) ? "needs positive whole-number stats"
+            : !(Number.isInteger(professor.copiesToLevelUp) && professor.copiesToLevelUp > 0) ? "needs a positive whole-number copiesToLevelUp"
             : undefined;
         if (problem) throw new Error(`Professor "${professor.id}" ${problem}.`);
         ids.add(professor.id);
     }
     if (!entries.length) throw new Error("The professor pool is empty.");
+    // TODO: might change the pulling chance formula since we just put flat pulling chance
     const totalWeight = entries.reduce((sum, professor) => sum + 1 / professor.avgRating, 0);
     return entries.map((professor) => ({
         ...professor,
@@ -76,16 +93,42 @@ export function pickProfessor(pool: readonly Professor[] = GACHA_POOL, random: (
 }
 
 /**
- * Performs one recruitment pull for a player: spends PULL_COST tokens, draws a
- * professor, and saves it to the player's collection. All of this happens in one
- * transaction, so tokens are never spent without a professor being saved.
+ * Combines an inventory row with the professor's details from the gacha pool.
+ * @param row - The inventory row from the database.
+ * @returns The inventory item, or undefined if the professor is no longer in the
+ * pool (for example, because they were removed from professors.ts).
+ */
+function toInventoryItem(row: InventoryRow): InventoryItem | undefined {
+    const professor = GACHA_POOL.find((candidate) => candidate.id === row.professor_id);
+    return professor && { level: row.level, copies: row.copies, obtainedAt: row.obtained_at, professor };
+}
+
+/**
+ * Lists every professor a player has recruited.
+ * @param db - The open game database.
+ * @param userId - The id of the player whose inventory to list.
+ * @returns The player's inventory items, oldest first. Professors that are no
+ * longer in the pool are left out.
+ */
+export function inventoryFor(db: DatabaseSync, userId: number): InventoryItem[] {
+    const rows = db.prepare("SELECT professor_id, level, copies, obtained_at FROM inventory WHERE user_id = ? ORDER BY id")
+        .all(userId) as InventoryRow[];
+    return rows.map(toInventoryItem).filter((item) => item !== undefined);
+}
+
+/**
+ * Performs one recruitment pull for a player: spends PULL_COST tokens and draws a
+ * professor. A professor the player does not own yet joins their inventory at
+ * level 1 with 1 copy; a professor they already own gains another copy instead. All of
+ * this happens in one transaction, so tokens are never spent without the inventory changing.
  * @param db - The open game database.
  * @param userId - The id of the player who is pulling.
  * @param random - Passed to pickProfessor; defaults to Math.random.
- * @returns The drawn professor and the player's token balance after paying, or
- * undefined, with nothing changed, if the player has fewer than PULL_COST tokens.
+ * @returns The professor's inventory item after the pull, whether they are new to the
+ * player (`isNew`), and the player's token balance after paying. Returns undefined,
+ * with nothing changed, if the player has fewer than PULL_COST tokens.
  */
-export function pullProfessor(db: DatabaseSync, userId: number, random: () => number = Math.random): { professor: Professor; tokens: number } | undefined {
+export function pullProfessor(db: DatabaseSync, userId: number, random: () => number = Math.random): { item: InventoryItem; isNew: boolean; tokens: number } | undefined {
     db.exec("BEGIN IMMEDIATE");
     try {
         const balance = db.prepare("UPDATE users SET tokens = tokens - ? WHERE id = ? AND tokens >= ? RETURNING tokens")
@@ -95,11 +138,41 @@ export function pullProfessor(db: DatabaseSync, userId: number, random: () => nu
             return undefined;
         }
         const professor = pickProfessor(GACHA_POOL, random);
-        db.prepare("INSERT INTO user_professors (user_id, professor_id) VALUES (?, ?)").run(userId, professor.id);
+        const row = db.prepare(`
+            INSERT INTO inventory (user_id, professor_id) VALUES (?, ?)
+            ON CONFLICT (user_id, professor_id) DO UPDATE SET copies = copies + 1
+            RETURNING professor_id, level, copies, obtained_at
+        `).get(userId, professor.id) as InventoryRow;
         db.exec("COMMIT");
-        return { professor, tokens: balance.tokens };
+        // New professors start with 1 copy, and a duplicate always brings the count to at least 2.
+        return { item: { level: row.level, copies: row.copies, obtainedAt: row.obtained_at, professor }, isNew: row.copies === 1, tokens: balance.tokens };
     } catch (error) {
         if (db.isTransaction) db.exec("ROLLBACK");
         throw error;
     }
+}
+
+/**
+ * Levels up one of a player's professors by spending duplicate copies. It costs the
+ * professor's copiesToLevelUp copies, and the player always keeps at least one copy,
+ * so they need copiesToLevelUp + 1 copies in total.
+ * @param db - The open game database.
+ * @param userId - The id of the player levelling up their professor.
+ * @param professorId - The id of the professor to level up.
+ * @returns The professor's inventory item and whether it levelled up. `levelledUp` is
+ * false, with nothing changed, if the player does not have enough copies. Returns
+ * undefined if the player does not own that professor.
+ */
+export function levelUpProfessor(db: DatabaseSync, userId: number, professorId: string): { item: InventoryItem; levelledUp: boolean } | undefined {
+    const professor = GACHA_POOL.find((candidate) => candidate.id === professorId);
+    if (!professor) return undefined;
+    const levelled = db.prepare(`
+        UPDATE inventory SET level = level + 1, copies = copies - ?
+        WHERE user_id = ? AND professor_id = ? AND copies > ?
+        RETURNING professor_id, level, copies, obtained_at
+    `).get(professor.copiesToLevelUp, userId, professorId, professor.copiesToLevelUp) as InventoryRow | undefined;
+    if (levelled) return { item: { level: levelled.level, copies: levelled.copies, obtainedAt: levelled.obtained_at, professor }, levelledUp: true };
+    const current = db.prepare("SELECT professor_id, level, copies, obtained_at FROM inventory WHERE user_id = ? AND professor_id = ?")
+        .get(userId, professorId) as InventoryRow | undefined;
+    return current && { item: { level: current.level, copies: current.copies, obtainedAt: current.obtained_at, professor }, levelledUp: false };
 }
