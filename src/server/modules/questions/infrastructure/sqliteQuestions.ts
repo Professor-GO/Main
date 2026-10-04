@@ -4,6 +4,8 @@ import type { DatabaseSync } from "node:sqlite";
 import type { CodingQuestion } from "./gemini.ts";
 
 export const QUESTION_REWARD = 1;
+// Tokens for a correct answer to a question from the teacher in the school.
+export const TEACHER_QUESTION_REWARD = 10;
 export const QUESTION_LIFETIME_MS = 30 * 60 * 1000;
 const schema = readFileSync(new URL("./questions.sql", import.meta.url), "utf8");
 
@@ -38,18 +40,20 @@ export function initializeQuestions(db: DatabaseSync): void {
  * @param db - The game's open database.
  * @param userId - The player who may answer this question.
  * @param question - The complete generated question, with shuffled choices.
+ * @param reward - The tokens a correct first answer earns. It is saved with the question,
+ * so the browser cannot change it when answering.
  * @returns The question id and public question fields.
  */
-export function saveQuestion(db: DatabaseSync, userId: string, question: CodingQuestion): PublicQuestion {
+export function saveQuestion(db: DatabaseSync, userId: string, question: CodingQuestion, reward: number = QUESTION_REWARD): PublicQuestion {
     const id = randomUUID();
     db.prepare("INSERT INTO question_attempts (id, user_id, question_json, expires_at) VALUES (?, ?, ?, ?)")
-        .run(id, userId, JSON.stringify(question), Date.now() + QUESTION_LIFETIME_MS);
+        .run(id, userId, JSON.stringify({ ...question, reward }), Date.now() + QUESTION_LIFETIME_MS);
     const { answerIndex, explanation, ...visible } = question;
     return { ...visible, id };
 }
 
 /**
- * Checks one answer and awards one token for a correct first submission. Both writes
+ * Checks one answer and awards the question's reward for a correct first submission. Both writes
  * commit together. Repeating the same submission returns its result without another reward.
  * @param db - The game's open database.
  * @param userId - The authenticated player submitting the answer.
@@ -72,10 +76,11 @@ export function answerQuestion(db: DatabaseSync, userId: string, questionId: str
             db.exec("ROLLBACK");
             return { error: problem ?? "missing" };
         }
-        const question = JSON.parse(row.question_json) as CodingQuestion;
+        // Questions saved before rewards could differ have none, and earn the usual reward.
+        const question = JSON.parse(row.question_json) as CodingQuestion & { reward?: number };
         const correct = selectedIndex === question.answerIndex;
         const alreadyAnswered = row.selected_index !== null;
-        const tokensAwarded = correct && !alreadyAnswered ? QUESTION_REWARD : 0;
+        const tokensAwarded = correct && !alreadyAnswered ? question.reward ?? QUESTION_REWARD : 0;
         const user = db.prepare('UPDATE "user" SET tokens = tokens + ? WHERE id = ? AND isActive = 1 RETURNING tokens')
             .get(tokensAwarded, userId) as { tokens: number } | undefined;
         if (!user) {

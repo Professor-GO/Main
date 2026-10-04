@@ -24,7 +24,9 @@ const pool = {
       id: "tor-aamodt",
       name: "Tor Aamodt",
       department: "Computer Engineering",
-      rarity: "Epic",
+      // Only Rare and Epic professors roam. Keeping this pool free of them leaves the map
+      // empty, so the test does not depend on when a wild professor happens to appear.
+      rarity: "Common",
     },
   ],
   cages: [],
@@ -66,7 +68,7 @@ test("the lobby opens the campus map, which starts at home and goes back to the 
     screen.getByRole("img", { name: /You are on screen C3, at home/ }),
   ).toBeVisible();
   expect(
-    await screen.findByText(/No Legendary professors right now/),
+    await screen.findByText(/No wild professors are roaming today/),
   ).toBeVisible();
   // The professors are loaded once, even under StrictMode.
   expect(fetcher).toHaveBeenCalledTimes(2);

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { openDatabase } from "../../../storage/database.ts";
 import { createAuth } from "../../accounts/infrastructure/betterAuth.ts";
 import { fallbackCodingQuestion } from "../infrastructure/gemini.ts";
-import { answerQuestion, saveQuestion } from "../infrastructure/sqliteQuestions.ts";
+import { TEACHER_QUESTION_REWARD, answerQuestion, saveQuestion } from "../infrastructure/sqliteQuestions.ts";
 
 test("question rewards persist atomically, reject expired attempts, and respect account status", async (t) => {
     const db = openDatabase(":memory:");
@@ -29,12 +29,26 @@ test("question rewards persist atomically, reject expired attempts, and respect 
     assert.equal(answer.tokensAwarded, 1);
     assert.equal(answer.tokens, 51);
 
+    // The teacher's questions pay more, the reward is not shown to the browser, and a wrong answer pays nothing.
+    const fromTeacher = saveQuestion(db, user.id, question, TEACHER_QUESTION_REWARD);
+    assert.equal("reward" in fromTeacher, false);
+    const paid = answerQuestion(db, user.id, fromTeacher.id, question.answerIndex);
+    assert.ok(!("error" in paid));
+    assert.deepEqual([paid.tokensAwarded, paid.tokens], [10, 61]);
+    const again = answerQuestion(db, user.id, fromTeacher.id, question.answerIndex);
+    assert.ok(!("error" in again));
+    assert.deepEqual([again.tokensAwarded, again.tokens], [0, 61]);
+    const missed = saveQuestion(db, user.id, question, TEACHER_QUESTION_REWARD);
+    const wrong = answerQuestion(db, user.id, missed.id, (question.answerIndex + 1) % 4);
+    assert.ok(!("error" in wrong));
+    assert.deepEqual([wrong.tokensAwarded, wrong.tokens], [0, 61]);
+
     const expired = saveQuestion(db, user.id, question);
     db.prepare("UPDATE question_attempts SET expires_at = 0 WHERE id = ?").run(expired.id);
     assert.deepEqual(answerQuestion(db, user.id, expired.id, question.answerIndex), { error: "expired" });
     const inactive = saveQuestion(db, user.id, question);
     db.prepare('UPDATE "user" SET isActive = 0 WHERE id = ?').run(user.id);
     assert.deepEqual(answerQuestion(db, user.id, inactive.id, question.answerIndex), { error: "inactive" });
-    assert.equal(db.prepare('SELECT tokens FROM "user" WHERE id = ?').get(user.id)?.tokens, 51);
+    assert.equal(db.prepare('SELECT tokens FROM "user" WHERE id = ?').get(user.id)?.tokens, 61);
     assert.equal(db.prepare("SELECT selected_index FROM question_attempts WHERE id = ?").get(inactive.id)?.selected_index, null);
 });

@@ -1,20 +1,22 @@
 /**
- * Draws one screen of the campus map on a canvas, seen from straight above: square grass
- * tiles, with scenery, the house, Legendary professors, and the player standing upright on
- * them. Things are drawn from the top of the screen down, so something lower on the screen
- * covers whatever stands behind it. That is how a tree's leaves hide a player walking behind
- * its trunk, while a player in front of the trunk is drawn over the tree.
+ * Draws one screen of the campus map, or one room, on a canvas, seen from straight above:
+ * square tiles with scenery and buildings standing upright on them. Things are drawn from the
+ * top of the screen down, so something lower on the screen covers whatever stands behind it.
+ * The player and the wild professors are animated stickmen drawn over the canvas (see
+ * ActorLayer); the canvas only marks where each wild professor stands.
  */
-import { PROP_ART, professorArt } from "./art";
+import { PROP_ART, ROOM_ART, TEXTURES, WINDOW_ART } from "./art";
+import { ROOM_DOOR, ROOM_DOOR_WIDTH, WALLS } from "./Game Mechanics/rooms";
+import type { Room } from "./Game Mechanics/rooms";
 import {
   CANOPY,
   HOUSE,
+  SCHOOL,
   SCREEN_TILES,
   WORLD_SCREENS,
   screenName,
 } from "./Game Mechanics/world";
 import type {
-  Direction,
   Point,
   Prop,
   PropKind,
@@ -23,7 +25,9 @@ import type {
 } from "./Game Mechanics/world";
 
 /** The size of one tile on the canvas, in pixels. */
-const TILE = 48;
+export const TILE = 48;
+/** How tall the stickmen are drawn over the canvas, in pixels. */
+export const ACTOR_HEIGHT = 100;
 /** The canvas size the scene is drawn at, before scaling for the screen's pixel density. */
 export const CANVAS_WIDTH = SCREEN_TILES * TILE;
 export const CANVAS_HEIGHT = SCREEN_TILES * TILE;
@@ -45,8 +49,7 @@ export type Scene = {
   screen: Screen;
   props: readonly Prop[];
   spawns: readonly (Spawn & { name: string })[];
-  player: { position: Point; facing: Direction; walking: boolean };
-  // Seconds since the map opened; drives the walking and glowing animations.
+  // Seconds since the map opened; drives the glowing animation.
   time: number;
 };
 
@@ -81,8 +84,8 @@ function toCanvas(x: number, y: number): Point {
 }
 
 /**
- * Draws a whole frame: the ground, flowers, the edge signposts, then everything standing on
- * the ground from the top of the screen down.
+ * Draws a whole frame of the campus: the ground, flowers, the edge signposts, then everything
+ * standing on the ground from the top of the screen down.
  * @param context - The canvas to draw on, already scaled to CANVAS_WIDTH × CANVAS_HEIGHT.
  * @param scene - What to draw.
  * @param images - Where to get pictures from.
@@ -111,7 +114,12 @@ export function drawScene(
     drawables.push(
       prop.kind === "house"
         ? { base: y + HOUSE_HALF, draw: () => drawHouse(context, x, y) }
-        : { base: y, draw: () => drawProp(context, prop.kind, x, y, images) },
+        : prop.kind === "school"
+          ? {
+              base: y + HOUSE_HALF,
+              draw: () => drawSchool(context, x, y, images),
+            }
+          : { base: y, draw: () => drawProp(context, prop.kind, x, y, images) },
     );
   }
   for (const spawn of scene.spawns) {
@@ -119,24 +127,9 @@ export function drawScene(
     const y = spawn.y - top;
     drawables.push({
       base: y,
-      draw: () => drawSpawn(context, spawn, x, y, scene.time, images),
+      draw: () => drawSpawn(context, spawn, x, y, scene.time),
     });
   }
-  const player = {
-    x: scene.player.position.x - left,
-    y: scene.player.position.y - top,
-  };
-  drawables.push({
-    base: player.y,
-    draw: () =>
-      drawPlayer(
-        context,
-        player,
-        scene.player.facing,
-        scene.player.walking,
-        scene.time,
-      ),
-  });
   drawables.sort((a, b) => a.base - b.base);
   for (const drawable of drawables) drawable.draw();
 
@@ -372,14 +365,15 @@ function drawHouse(
 }
 
 /**
+ * Marks where a wild professor stands: a pulsing pool of light on the ground and their name
+ * above their head. The professor themselves is an animated stickman drawn over the canvas.
  * Draws a Legendary professor: a glowing golden token with their face, floating gently above a
  * pool of light, with their name above. One chasing the player glows red instead.
  * @param context - The canvas.
  * @param spawn - The professor.
  * @param x - Their position on the screen, in tiles.
  * @param y - Their position on the screen, in tiles.
- * @param time - Seconds since the map opened, for the floating and glowing.
- * @param images - Where to get pictures from.
+ * @param time - Seconds since the map opened, for the glowing.
  */
 function drawSpawn(
   context: CanvasRenderingContext2D,
@@ -387,7 +381,6 @@ function drawSpawn(
   x: number,
   y: number,
   time: number,
-  images: ImageCache,
 ): void {
   const base = toCanvas(x, y);
   const pulse = 0.5 + 0.5 * Math.sin(time * 3 + spawn.id);
@@ -407,6 +400,8 @@ function drawSpawn(
   context.ellipse(base.x, base.y, 30, 13, 0, 0, Math.PI * 2);
   context.fill();
 
+  drawNameTag(context, base, `★ ${spawn.name}`);
+}
   const radius = 22;
   const centre = {
     x: base.x,
@@ -442,11 +437,23 @@ function drawSpawn(
   context.arc(centre.x, centre.y, radius, 0, Math.PI * 2);
   context.stroke();
 
-  // Two sparkles circling the token.
-  context.fillStyle = "#f2b705";
-  context.font = "bold 14px sans-serif";
+/**
+ * Writes a name on a dark tag above where a stickman's head is.
+ * @param context - The canvas.
+ * @param base - Where the stickman's feet are, in pixels.
+ * @param label - The name.
+ */
+function drawNameTag(
+  context: CanvasRenderingContext2D,
+  base: Point,
+  label: string,
+): void {
+  context.font = "bold 11px 'Segoe UI', Arial, sans-serif";
   context.textAlign = "center";
   context.textBaseline = "middle";
+  const width = context.measureText(label).width + 14;
+  const tagY = base.y - ACTOR_HEIGHT - 16;
+  context.fillStyle = "rgb(37 75 63 / 0.92)";
   for (const offset of [0, Math.PI]) {
     const angle = time * 1.8 + offset;
     context.fillText(
@@ -462,96 +469,210 @@ function drawSpawn(
   const width = context.measureText(label).width + 14;
   context.fillStyle = spawn.chasing ? "rgb(122 22 16 / 0.92)" : "rgb(37 75 63 / 0.92)";
   context.beginPath();
-  context.roundRect(centre.x - width / 2, centre.y - radius - 24, width, 18, 9);
+  context.roundRect(base.x - width / 2, tagY - 9, width, 18, 9);
   context.fill();
   context.fillStyle = "#ffe08a";
-  context.fillText(label, centre.x, centre.y - radius - 14);
+  context.fillText(label, base.x, tagY + 1);
 }
 
 /**
- * Draws the player: a small student in a green jacket and lime cap, facing the way they walk,
- * with legs that swing while walking.
+ * Fills the current path's rectangle with a repeating picture, such as floorboards or bricks.
  * @param context - The canvas.
- * @param at - Where they stand on the screen, in tiles.
- * @param facing - The way they face.
- * @param walking - Whether they are walking right now.
- * @param time - Seconds since the map opened, for the walking animation.
+ * @param image - The texture, or undefined while it loads.
+ * @param fallback - The colour to use until the texture has loaded.
+ * @param rectangle - The area to fill, in pixels: [x, y, width, height].
  */
-function drawPlayer(
+function fillTexture(
   context: CanvasRenderingContext2D,
-  at: Point,
-  facing: Direction,
-  walking: boolean,
-  time: number,
+  image: HTMLImageElement | undefined,
+  fallback: string,
+  rectangle: [number, number, number, number],
 ): void {
-  const base = toCanvas(at.x, at.y);
-  const swing = walking ? Math.sin(time * 12) : 0;
-  const bob = walking ? Math.abs(swing) * 2.5 : 0;
-  const away = facing.startsWith("n");
-  const side = facing.endsWith("e") ? 1 : facing.endsWith("w") ? -1 : 0;
-  drawShadow(context, base, 12, 5);
+  let pattern: CanvasPattern | null = null;
+  if (image) {
+    pattern = context.createPattern(image, "repeat");
+    // The textures are large pictures; shrink them so one repeat is two tiles wide.
+    const scale = (2 * TILE) / image.naturalWidth;
+    pattern?.setTransform(new DOMMatrix().scale(scale));
+  }
+  context.fillStyle = pattern ?? fallback;
+  context.fillRect(...rectangle);
+}
 
+/**
+ * Draws the school, seen from above with its front wall showing: a brick wall with windows
+ * and double doors facing down the screen, under a flat slate roof.
+ * @param context - The canvas.
+ * @param x - The middle of the school on the screen, in tiles.
+ * @param y - The middle of the school on the screen, in tiles.
+ * @param images - Where to get pictures from.
+ */
+function drawSchool(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  images: ImageCache,
+): void {
+  const half = SCHOOL.footprint?.kind === "box" ? SCHOOL.footprint : null;
+  const halfWidth = half?.halfWidth ?? 2.5;
+  const halfDepth = half?.halfDepth ?? 1.5;
+  const left = (x - halfWidth) * TILE;
+  const width = halfWidth * 2 * TILE;
+  const bottom = (y + halfDepth) * TILE;
+  const wallTop = bottom - 1.6 * TILE;
+  const roofTop = (y - halfDepth - 0.6) * TILE;
   context.lineJoin = "round";
-  context.strokeStyle = "#1d2e27";
-  context.lineWidth = 1.5;
-  // Legs.
-  context.fillStyle = "#3a4a5c";
-  for (const [offset, phase] of [
-    [-4.5, swing],
-    [1.5, -swing],
-  ] as const) {
-    context.beginPath();
-    context.roundRect(base.x + offset, base.y - 15 - bob, 5, 14 + phase * 2, 2);
-    context.fill();
-    context.stroke();
-  }
-  // Body: a green jacket, with a lime backpack when seen from behind.
-  const bodyTop = base.y - 36 - bob;
-  context.fillStyle = "#254b3f";
-  context.beginPath();
-  context.roundRect(base.x - 11, bodyTop, 22, 23, 7);
-  context.fill();
-  context.stroke();
-  if (away) {
-    context.fillStyle = "#c3df6f";
-    context.beginPath();
-    context.roundRect(base.x - 7, bodyTop + 3, 14, 14, 4);
-    context.fill();
-    context.stroke();
-  }
-  // Head.
-  const head = { x: base.x + side * 1.5, y: bodyTop - 9 };
-  context.fillStyle = away ? "#3b2a1e" : "#f1c7a1";
-  context.beginPath();
-  context.arc(head.x, head.y, 10.5, 0, Math.PI * 2);
-  context.fill();
-  context.stroke();
-  // A lime cap, with its brim pointing the way they face.
-  context.fillStyle = "#c3df6f";
-  context.beginPath();
-  context.ellipse(head.x, head.y - 5, 11, 7, 0, Math.PI, 0);
-  context.fill();
-  context.stroke();
-  if (!away) {
-    context.beginPath();
-    context.ellipse(
-      head.x + side * 7,
-      head.y - 4,
-      side ? 7 : 10,
-      3,
-      0,
-      0,
-      Math.PI * 2,
-    );
-    context.fill();
-    context.stroke();
-    // Eyes: two when facing the viewer, one when seen side-on.
-    context.fillStyle = "#1d2e27";
-    const eyes = side ? [side * 5] : [-3.5, 3.5];
-    for (const eye of eyes) {
-      context.beginPath();
-      context.arc(head.x + eye, head.y + 2, 1.6, 0, Math.PI * 2);
-      context.fill();
+  context.strokeStyle = "#2b2b2b";
+  context.lineWidth = 2;
+  drawShadow(context, { x: x * TILE, y: bottom }, width * 0.55, 10);
+
+  // The roof, then the front wall over its lower edge.
+  context.fillStyle = "#5b6470";
+  context.fillRect(left - 8, roofTop, width + 16, wallTop + 10 - roofTop);
+  context.strokeRect(left - 8, roofTop, width + 16, wallTop + 10 - roofTop);
+  fillTexture(context, images(TEXTURES.brick), "#8a8a8a", [
+    left,
+    wallTop,
+    width,
+    bottom - wallTop,
+  ]);
+  context.strokeRect(left, wallTop, width, bottom - wallTop);
+
+  // Two windows either side of the doors.
+  const windowImage = images(WINDOW_ART);
+  for (const offset of [-1.85, -0.95, 0.95, 1.85]) {
+    const windowWidth = 0.7 * TILE;
+    const windowHeight = 0.55 * TILE;
+    const windowLeft = (x + offset) * TILE - windowWidth / 2;
+    if (windowImage)
+      context.drawImage(
+        windowImage,
+        windowLeft,
+        wallTop + 22,
+        windowWidth,
+        windowHeight,
+      );
+    else {
+      context.fillStyle = "#a8d8f0";
+      context.fillRect(windowLeft, wallTop + 22, windowWidth, windowHeight);
     }
   }
+  // Double doors in the middle, under the school's sign.
+  const doorWidth = 0.95 * TILE;
+  const doorTop = bottom - 0.95 * TILE;
+  context.fillStyle = "#7a4a2a";
+  context.fillRect(
+    x * TILE - doorWidth / 2,
+    doorTop,
+    doorWidth,
+    bottom - doorTop,
+  );
+  context.strokeRect(
+    x * TILE - doorWidth / 2,
+    doorTop,
+    doorWidth,
+    bottom - doorTop,
+  );
+  context.beginPath();
+  context.moveTo(x * TILE, doorTop);
+  context.lineTo(x * TILE, bottom);
+  context.stroke();
+  context.font = "bold 12px 'Segoe UI', Arial, sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  const sign = "SCHOOL";
+  const signWidth = context.measureText(sign).width + 16;
+  context.fillStyle = "#254b3f";
+  context.fillRect(x * TILE - signWidth / 2, wallTop + 4, signWidth, 16);
+  context.fillStyle = "#f6f8ec";
+  context.fillText(sign, x * TILE, wallTop + 13);
+}
+
+/** Everything needed to draw one frame of a room. */
+export type RoomScene = {
+  room: Room;
+  spawns: readonly (Spawn & { name: string })[];
+  time: number;
+};
+
+/**
+ * Draws a whole frame of a room: the floor, the brick wall along the top, the thin black
+ * walls down the sides and along the bottom, the doormat, then the furniture from the top of
+ * the screen down. The player and any wild professor are stickmen drawn over the canvas.
+ * @param context - The canvas to draw on, already scaled to CANVAS_WIDTH × CANVAS_HEIGHT.
+ * @param scene - What to draw.
+ * @param images - Where to get pictures from.
+ */
+export function drawRoom(
+  context: CanvasRenderingContext2D,
+  scene: RoomScene,
+  images: ImageCache,
+): void {
+  const { room } = scene;
+  context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  fillTexture(
+    context,
+    images(TEXTURES[room.floor]),
+    room.floor === "wood" ? "#c98a4b" : "#e8d5ac",
+    [0, 0, CANVAS_WIDTH, CANVAS_HEIGHT],
+  );
+  const wallBottom = WALLS.top * TILE;
+  fillTexture(context, images(TEXTURES.brick), "#8a8a8a", [
+    0,
+    0,
+    CANVAS_WIDTH,
+    wallBottom,
+  ]);
+  // A shadow where the wall meets the floor.
+  context.fillStyle = "rgb(0 0 0 / 0.18)";
+  context.fillRect(0, wallBottom, CANVAS_WIDTH, 6);
+
+  // The side and bottom walls are long black lines; the bottom one has a gap for the door.
+  const side = WALLS.side * TILE;
+  const bottomTop = CANVAS_HEIGHT - WALLS.bottom * TILE;
+  const doorLeft = (ROOM_DOOR.x - ROOM_DOOR_WIDTH / 2) * TILE;
+  const doorRight = (ROOM_DOOR.x + ROOM_DOOR_WIDTH / 2) * TILE;
+  context.fillStyle = "#111111";
+  context.fillRect(0, 0, side, CANVAS_HEIGHT);
+  context.fillRect(CANVAS_WIDTH - side, 0, side, CANVAS_HEIGHT);
+  context.fillRect(0, bottomTop, doorLeft, CANVAS_HEIGHT - bottomTop);
+  context.fillRect(
+    doorRight,
+    bottomTop,
+    CANVAS_WIDTH - doorRight,
+    CANVAS_HEIGHT - bottomTop,
+  );
+  // The doormat, just inside the door.
+  context.fillStyle = "#7a4a2a";
+  context.beginPath();
+  context.roundRect(
+    doorLeft + 4,
+    bottomTop - 20,
+    doorRight - doorLeft - 8,
+    16,
+    4,
+  );
+  context.fill();
+
+  // Things on the wall first, then the furniture from the top of the screen down.
+  const items = [...room.items].sort(
+    (a, b) => Number(!!a.block) - Number(!!b.block) || a.y - b.y,
+  );
+  for (const item of items) {
+    const image = images(ROOM_ART[item.art]);
+    if (!image) continue;
+    const height = item.height * TILE;
+    const width = (image.naturalWidth / image.naturalHeight) * height;
+    context.drawImage(
+      image,
+      item.x * TILE - width / 2,
+      item.y * TILE - height + 4,
+      width,
+      height,
+    );
+  }
+  for (const spawn of scene.spawns)
+    drawSpawn(context, spawn, spawn.x, spawn.y, scene.time);
+  if (room.npc)
+    drawNameTag(context, toCanvas(room.npc.x, room.npc.y), room.npc.name);
 }

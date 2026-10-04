@@ -7,6 +7,7 @@ import {
 import {
   changeBattle,
   installQuiz,
+  markCaught,
   publicBattle,
   readBattle,
   saveBattle,
@@ -23,7 +24,13 @@ import {
   rateLimiter,
   requireUser,
 } from "../../accounts/http/session.ts";
-import { GACHA_POOL } from "../../recruitment/application/recruitment.ts";
+import {
+  GACHA_CAGES,
+  GACHA_POOL,
+  inventoryFor,
+} from "../../recruitment/application/recruitment.ts";
+import { catchWithCage } from "../../recruitment/infrastructure/sqliteInventory.ts";
+import { professorFighter } from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
 import { createCodingQuestion } from "../../questions/infrastructure/gemini.ts";
 import type { Battle } from "../../../../../BackEnd/Persistence Layer/encounterBattles.ts";
 import { STUDENT_STATS } from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
@@ -93,13 +100,24 @@ export function battleRoutes({ db, auth }: AppContext) {
     .all(allowMethods("POST"))
     .post(checkOrigin, rateLimiter(30), jsonBody, async (request, response) => {
       const user = await requireUser(auth, request);
-      const { encounterId, professorId } = request.body;
+      const { encounterId, professorId, fighterId } = request.body;
       if (!uuid(encounterId)) throw httpError(400, "Choose a valid encounter.");
+      // Only Rare and Epic professors roam wild; the others are recruited at the gashapon machine.
       const professor = GACHA_POOL.find(
-        (entry) => entry.id === professorId && entry.rarity === "Legendary",
+        (entry) =>
+          entry.id === professorId && ["Rare", "Epic"].includes(entry.rarity),
       );
       if (!professor)
         throw httpError(400, "This professor cannot appear in the overworld.");
+      // The player may send out a professor they own; otherwise the student fights.
+      let fighter;
+      if (fighterId !== undefined && fighterId !== null) {
+        const owned = inventoryFor(db, user.id).find(
+          (item) => item.professor.id === fighterId,
+        );
+        if (!owned) throw httpError(404, "You don't have that professor yet.");
+        fighter = professorFighter(owned.professor.stats, owned.level);
+      }
       const playerStats = STUDENT_STATS;
       response.json(
         publicBattle(
@@ -107,7 +125,9 @@ export function battleRoutes({ db, auth }: AppContext) {
             id: encounterId,
             professorId: professor.id,
             professorName: professor.name,
+            fighterId: fighter ? fighterId : null,
             version: 0,
+            combat: createCombat(professor.stats, Math.random, fighter),
             combat: createCombat(professor.stats, undefined, playerStats),
             quiz: null,
             feedback: null,
@@ -151,6 +171,42 @@ export function battleRoutes({ db, auth }: AppContext) {
         await pending;
       }
       response.json(publicBattle(settleExpired(db, user.id, id)));
+    });
+  // Throws a cage at a defeated professor to catch them. The cage is spent and the professor
+  // joins the player's inventory, both in one transaction, and only once per battle.
+  router
+    .route("/battle/:id/catch")
+    .all(allowMethods("POST"))
+    .post(checkOrigin, rateLimiter(30), jsonBody, async (request, response) => {
+      const user = await requireUser(auth, request);
+      const id = String(request.params.id);
+      const { cageId } = request.body;
+      if (!GACHA_CAGES.some((cage) => cage.id === cageId))
+        throw httpError(400, "Choose one of your cages.");
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        const battle = readBattle(db, user.id, id);
+        if (battle.combat.status !== "won")
+          throw httpError(409, "Defeat the professor before trying to catch them.");
+        if (battle.caught)
+          throw httpError(409, "You have already caught this professor.");
+        const caught = catchWithCage(db, user.id, cageId, battle.professorId);
+        if (!caught) throw httpError(409, "You don't have that cage.");
+        const next = markCaught(db, user.id, battle);
+        db.exec("COMMIT");
+        const item = inventoryFor(db, user.id).find(
+          (owned) => owned.professor.id === battle.professorId,
+        );
+        response.json({
+          battle: publicBattle(next),
+          item,
+          isNew: caught.row.copies === 1,
+          cagesLeft: caught.cagesLeft,
+        });
+      } catch (error) {
+        if (db.isTransaction) db.exec("ROLLBACK");
+        throw error;
+      }
     });
   router
     .route("/battle/:id/action")

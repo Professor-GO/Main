@@ -95,6 +95,9 @@ Browser API requests are same-origin. POST bodies are JSON objects; errors use `
 | POST | `/api/auth/login` | Authenticate |
 | GET | `/api/auth/me` | Public profile with string ID and token balance |
 | POST | `/api/auth/logout` | Revoke session |
+| GET | `/api/gacha/pool` | Roster and pull cost |
+| POST | `/api/gacha/pull` | Spend tokens, award professor or cage, and update pity atomically. With `{ count: 10 }`, makes ten pulls if the player can afford all ten and replies `{ pulls, user }` |
+| GET | `/api/inventory` | Owned professors and cages |
 | GET | `/api/gacha/pool` | Roster with each professor's cage and base chance, the cages, and pull cost |
 | GET | `/api/gacha/pity` | The player's pity, pull cost, and guarantee size |
 | POST | `/api/gacha/pull` | Spend tokens, award a caged professor, and update pity atomically |
@@ -102,10 +105,11 @@ Browser API requests are same-origin. POST bodies are JSON objects; errors use `
 | POST | `/api/inventory/level-up` | Spend spare copies |
 | GET | `/api/question` | Player-owned question attempt, no answer or explanation |
 | POST | `/api/question/answer` | Submit `{ questionId, selectedIndex }` |
-| POST | `/api/battle/start` | Start/retry a Legendary encounter with `{ encounterId, professorId }` |
+| POST | `/api/battle/start` | Start/retry a Rare or Epic encounter with `{ encounterId, professorId, fighterId? }`. `fighterId` is a professor the player owns and sends out; without it the student fights |
 | GET | `/api/battle/:id` | Owned battle state; settles expired questions |
 | GET | `/api/battle/:id/question` | Generate/retrieve the current private battle question |
 | POST | `/api/battle/:id/action` | Attack, answer, timeout, or flee with an idempotent action ID and expected version |
+| POST | `/api/battle/:id/catch` | After a win, spend one owned cage `{ cageId }` to add the defeated professor to the inventory; once per battle |
 
 Accounts begin with 50 tokens; a pull costs 10. Professor IDs remain stable inventory keys, and duplicates add copies. Level-up retains at least one copy.
 
@@ -133,9 +137,14 @@ The lobby's **Explore the campus** button opens a top-down open world, drawn on 
 - The world is 5 × 5 screens of 12 × 12 tiles. The player starts at their house in the middle screen (C3) and walks in 8 directions with WASD, the arrow keys, or the on-screen pad.
 - Walking off a screen's edge arrives at the opposite edge of the next screen; walking off the world's edge wraps around to the other side. Signposts on each edge name the next screen.
 - Scenery is generated from a fixed seed, so the map is the same on every visit. Blocking scenery stays off each screen's outer ring, so every screen can be crossed. Only a tree's trunk blocks the player; they can walk under its leaves, which then hide them.
-- Legendary professors (from `GET /api/gacha/pool`) appear at random away from the player and never at home, at most 3 at once. Walking up to one shows an encounter card with **Fight professor** and **Keep exploring**. Fighting pauses movement until the battle ends or the player runs away. Spawns are not saved or server-checked; battles grant no capture, inventory, or token rewards.
+- **Wild professors** are the Rare and Epic ones (from `GET /api/gacha/pool`). They appear at random on the campus and inside the school, never at home, at most 6 at once, a new one every 5–12 seconds, always within 16 tiles of the player so one is usually in sight. They roam as animated stickmen, crossing from screen to screen but keeping off the home screen. Walking up to one shows an encounter card where the player chooses who to send out (one of their professors, or themselves), with **Fight professor** and **Keep exploring**. Spawns are not saved or server-checked.
+- **Buildings:** the house (screen C3) and the school (screen D3) can be entered by pressing F at the door, and left the same way. Each is one room built from the pictures in `Assets/`; the side and bottom walls are black lines.
+- **Battles** take over the map with the clearing from `Assets/fighting_scene/`. Both fighters shake left and right, attacks play as punches, and the three timed quizzes interrupt as before. A sent-out professor fights with its own stats (see `professorFighter` in the game engine); each level above 1 adds 10% health and attack. After a win the player can throw one of their cages to catch the professor, or let them go. Battles grant no tokens.
+- **Gashapon machine:** it stands in the school; press F in front of it. Capsules tumble in the globe with simple physics, and the player can pull 1 or 10. Each capsule rolls out, splits in half, and reveals the prize: a professor in a cage (gold for Legendary, copper otherwise) or a cage.
+- **Teacher:** a teacher stands at the blackboard in the school; press F beside them for a quiz. Each correct answer to a teacher's question earns 10 tokens (`GET /api/question?from=teacher`); the reward is saved with the question on the server. The lobby quiz still earns 1.
+- **Stickmen:** the player and the professors are drawn with the rig from `Assets/stickman-react`, ported to TypeScript in `src/client/features/stickman/` and animated with GSAP. Their head pictures are in `Assets/stickman/heads/`.
 
-Map mechanics live in `src/client/features/world/Game Mechanics/`: the rules (layout, walking, wrapping, collisions, spawns, encounters) in `world.ts` with tests in `tests/`, and the game loop in `game.ts`. Battle/health rules live in `BackEnd/Game Engine/encounterBattle.ts`, SQLite battle storage in `BackEnd/Persistence Layer/encounterBattles.ts`, and authenticated routes in `src/server/modules/battles/`. Drawing is in `features/world/renderer.ts`, and the page in `pages/WorldPage/`. Only the artwork imported by `features/world/art.ts` (`Assets/outdoor/` and the professors' front pictures) is published; the player and house are drawn in code as placeholders.
+Map mechanics live in `src/client/features/world/Game Mechanics/`: the campus rules (layout, walking, wrapping, collisions, spawns, doors) in `world.ts`, the room rules in `rooms.ts`, the capsule physics in `capsules.ts`, tests in `tests/`, and the game loop in `game.ts`. Battle/health rules live in `BackEnd/Game Engine/encounterBattle.ts`, SQLite battle storage in `BackEnd/Persistence Layer/encounterBattles.ts`, and authenticated routes in `src/server/modules/battles/`. Drawing is in `features/world/renderer.ts`, and the pages in `pages/WorldPage/` (`WorldPage`, `ActorLayer`, `BattleEncounter`, `Gashapon`). Only the artwork imported by `features/world/art.ts` and `features/stickman/looks.ts` is published; the outsides of the house and school are drawn in code.
 
 ### Wild battle quizzes
 

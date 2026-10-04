@@ -8,8 +8,19 @@ import "./QuestionPage.css";
 type QuestionPageProps = {
   onBack: () => void;
   onTokens: (tokens: number) => void;
+  // True when the school's teacher is asking: their questions pay more, and the quiz is
+  // shown over the classroom instead of as a page of its own.
+  teacher?: boolean;
 };
-export default function QuestionPage({ onBack, onTokens }: QuestionPageProps) {
+// What a correct answer earns, for the introduction. The server decides the real reward.
+const REWARD = { lobby: "1 token", teacher: "10 tokens" };
+
+export default function QuestionPage({
+  onBack,
+  onTokens,
+  teacher = false,
+}: QuestionPageProps) {
+  const from = teacher ? "teacher" : undefined;
   const [state, dispatch] = useReducer(transitionQuestion, { kind: "loading" });
   const title = useRef<HTMLHeadingElement>(null);
   const next = useRef<HTMLButtonElement>(null);
@@ -18,10 +29,10 @@ export default function QuestionPage({ onBack, onTokens }: QuestionPageProps) {
   const initialQuestion = useRef<Promise<PublicQuestion> | null>(null);
   useEffect(() => {
     mounted.current = true;
-    document.title = "Pop quiz · Professor-Go";
+    if (!teacher) document.title = "Pop quiz · Professor-Go";
     title.current?.focus();
     let active = true;
-    initialQuestion.current ??= loadQuestion();
+    initialQuestion.current ??= loadQuestion(from);
     initialQuestion.current
       .then((question) => {
         if (active) dispatch({ kind: "loaded", question });
@@ -33,7 +44,7 @@ export default function QuestionPage({ onBack, onTokens }: QuestionPageProps) {
       active = false;
       mounted.current = false;
     };
-  }, []);
+  }, [teacher, from]);
   useEffect(() => {
     if (state.kind === "answered") next.current?.focus();
   }, [state.kind]);
@@ -43,7 +54,7 @@ export default function QuestionPage({ onBack, onTokens }: QuestionPageProps) {
     busy.current = true;
     dispatch({ kind: "load" });
     try {
-      const question = await loadQuestion();
+      const question = await loadQuestion(from);
       if (mounted.current) dispatch({ kind: "loaded", question });
     } catch (error) {
       if (mounted.current)
@@ -101,13 +112,14 @@ export default function QuestionPage({ onBack, onTokens }: QuestionPageProps) {
         disabled={state.kind === "submitting"}
         onClick={onBack}
       >
-        <span aria-hidden="true">←</span> Back to lobby
+        <span aria-hidden="true">←</span>{" "}
+        {teacher ? "Back to class" : "Back to lobby"}
       </button>
       <p className="eyebrow">
         <span className="tiny-cross" aria-hidden="true">
           ✦
         </span>{" "}
-        GET TOKENS · POP QUIZ
+        {teacher ? "THE TEACHER ASKS · POP QUIZ" : "GET TOKENS · POP QUIZ"}
       </p>
       <h1 ref={title} id="question-title" tabIndex={-1}>
         Pop quiz<span className="accent-dot">.</span>
@@ -115,7 +127,7 @@ export default function QuestionPage({ onBack, onTokens }: QuestionPageProps) {
       <p className="intro">
         Pick the answer you think is right.
         <br />
-        Each correct answer earns 1 token.
+        Each correct answer earns {teacher ? REWARD.teacher : REWARD.lobby}.
       </p>
       {question && (
         <div className="question-card" id="question-card">
@@ -161,8 +173,8 @@ export default function QuestionPage({ onBack, onTokens }: QuestionPageProps) {
             >
               <strong id="question-result">
                 {answer.correct
-                  ? answer.tokensAwarded === 1
-                    ? "Correct! +1 token."
+                  ? answer.tokensAwarded > 0
+                    ? `Correct! +${answer.tokensAwarded} ${answer.tokensAwarded === 1 ? "token" : "tokens"}.`
                     : "Correct! Your token was already awarded."
                   : `Not quite. The answer is ${String.fromCharCode(65 + answer.answerIndex)}. No tokens earned.`}
               </strong>

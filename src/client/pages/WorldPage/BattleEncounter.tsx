@@ -1,12 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import gsap from "gsap";
 import { ApiError, errorMessage } from "../../api/request";
+import { loadInventory } from "../../features/world/api";
+import type { OwnedCage } from "../../features/world/api";
 import {
   battleAction,
+  catchProfessor,
   loadBattle,
   loadBattleQuestion,
   loadOwnedFighters,
   startBattle,
 } from "../../features/world/battleApi";
+import type { BattleAction, BattleView } from "../../features/world/battleApi";
+import type { WildProfessor } from "../../features/world/Game Mechanics/game";
+import { ARENA_ART, CAGE_ART } from "../../features/world/art";
+import Stickman from "../../features/stickman/Stickman";
+import type { StickmanHandle } from "../../features/stickman/Stickman";
+import { lookFor } from "../../features/stickman/looks";
 import type {
   BattleAction,
   BattleView,
@@ -18,12 +28,29 @@ import "./BattleEncounter.css";
 import BattleStage from "../../features/battle/BattleStage";
 import { fighterArt, STUDENT_FIGHTER } from "../../features/battle/fighters";
 
-/** The paused encounter fight and its three timed quiz interruptions. */
+/** Who the player sends into the battle: one of their professors, or null for themselves. */
+export type Fighter = { id: string; name: string } | null;
+
+// The battle is drawn in a 600 × 338 space, the shape of the clearing's picture. The player's
+// side stands on the near patch of earth and the wild professor on the far one.
+const SCENE = { width: 600, height: 338 };
+const NEAR = { x: 205, y: 300, scale: 0.4 };
+const FAR = { x: 470, y: 190, scale: 0.27 };
+
+/**
+ * The battle scene: the wild professor and the player's fighter face each other in a grassy
+ * clearing, shaking left and right. Attacks play out as punches, three timed quizzes
+ * interrupt the fight, and a defeated professor can be caught by throwing a cage at them.
+ */
 export default function BattleEncounter({
   professor,
+  fighter = null,
   onLeave,
 }: {
-  professor: LegendaryProfessor;
+  professor: Pick<WildProfessor, "id" | "name" | "department"> & {
+    rarity?: string;
+  };
+  fighter?: Fighter;
   onLeave: () => void;
 }) {
   const [battle, setBattle] = useState<BattleView | null>(null);
@@ -31,6 +58,9 @@ export default function BattleEncounter({
   const [error, setError] = useState("");
   const [conflict, setConflict] = useState(false);
   const [now, setNow] = useState(Date.now());
+  // The player's cages, loaded once the professor is defeated, and how the catch went.
+  const [cages, setCages] = useState<OwnedCage[] | null>(null);
+  const [caught, setCaught] = useState("");
   const [animating, setAnimating] = useState(false);
   const [ownedFighters, setOwnedFighters] = useState<OwnedFighter[] | null>(
     null,
@@ -45,6 +75,10 @@ export default function BattleEncounter({
   const retry = useRef<BattleAction | null>(null);
   const dialog = useRef<HTMLDivElement>(null);
   const questionTitle = useRef<HTMLHeadingElement>(null);
+  const near = useRef<StickmanHandle>(null);
+  const far = useRef<StickmanHandle>(null);
+  const cage = useRef<SVGImageElement>(null);
+  const fighterId = fighter?.id ?? null;
 
   useEffect(() => {
     let active = true;
@@ -69,6 +103,10 @@ export default function BattleEncounter({
 
   useEffect(() => {
     mounted.current = true;
+    initial.current ??= startBattle(
+      encounterId.current,
+      professor.id,
+      fighterId,
     if (!ownedFighters) return;
     const chosenProfessor = playerId || ownedFighters[0]?.id || undefined;
     initial.current ??= startBattle(
@@ -89,6 +127,26 @@ export default function BattleEncounter({
       active = false;
       mounted.current = false;
     };
+  }, [professor.id, fighterId]);
+
+  // Stands both stickmen on their patches of earth, facing each other and ready to fight.
+  useLayoutEffect(() => {
+    near.current?.element?.setAttribute(
+      "transform",
+      `translate(${NEAR.x} ${NEAR.y})`,
+    );
+    far.current?.element?.setAttribute(
+      "transform",
+      `translate(${FAR.x} ${FAR.y})`,
+    );
+    far.current?.controller?.setDirection(-1);
+    near.current?.controller?.sway();
+    far.current?.controller?.sway();
+    const thrown = cage.current;
+    return () => {
+      if (thrown) gsap.killTweensOf(thrown);
+    };
+  }, []);
   }, [professor.id, ownedFighters, playerId]);
 
   const waiting = battle?.status === "question" && !battle.question;
@@ -134,6 +192,38 @@ export default function BattleEncounter({
       void send("timeout");
   }, [deadline, now, busy, error]);
 
+  // Once the professor is defeated, find out which cages the player can throw.
+  const won = battle?.status === "won";
+  useEffect(() => {
+    if (!won) return;
+    let active = true;
+    loadInventory()
+      .then((owned) => {
+        if (active) setCages(owned.cages.filter((owned) => owned.quantity > 0));
+      })
+      .catch(() => {
+        // Without their cages the player can still walk away from the battle.
+        if (active) setCages([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [won]);
+
+  /** Plays the punches for a turn: the player's side strikes, and the professor may hit back. */
+  function playTurn(before: BattleView, after: BattleView) {
+    near.current?.controller?.attack(() => {
+      if (after.health < before.health) far.current?.controller?.hit();
+    });
+    if (after.playerHealth < before.playerHealth)
+      window.setTimeout(() => {
+        if (mounted.current)
+          far.current?.controller?.attack(() =>
+            near.current?.controller?.hit(),
+          );
+      }, 750);
+  }
+
   /** Keeps a failed command unchanged until explicitly retried or refreshed. */
   async function send(kind: BattleAction["kind"], selectedIndex?: number) {
     if (
@@ -157,6 +247,7 @@ export default function BattleEncounter({
     try {
       const value = await battleAction(battle.id, action);
       if (mounted.current) {
+        if (action.kind === "attack") playTurn(battle, value);
         setBattle(value);
         retry.current = null;
         setConflict(false);
@@ -182,7 +273,7 @@ export default function BattleEncounter({
         ? await (waiting
             ? loadBattleQuestion(battle.id)
             : loadBattle(battle.id))
-        : await startBattle(encounterId.current, professor.id);
+        : await startBattle(encounterId.current, professor.id, fighterId);
       if (mounted.current) {
         setBattle(value);
         setError("");
@@ -197,8 +288,76 @@ export default function BattleEncounter({
     }
   }
 
+  /**
+   * Throws a cage at the defeated professor. The server spends the cage and adds the
+   * professor to the player's inventory; then the cage flies over and lands on them.
+   */
+  async function throwCage(owned: OwnedCage) {
+    if (!battle || lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await catchProfessor(battle.id, owned.id);
+      if (!mounted.current) return;
+      setBattle(result.battle); Can’t automatically merge. Don’t worry, you can still create the pull request. 
+      const image = cage.current;
+      if (image) {
+        image.setAttribute(
+          "href",
+          CAGE_ART[owned.id] ?? CAGE_ART["bronze-cage"],
+        );
+        // The cage arcs from the player's side to the professor, spinning, then drops over
+        // them and rocks from side to side as it settles.
+        gsap.set(image, {
+          opacity: 1,
+          x: NEAR.x,
+          y: NEAR.y - 150,
+          scale: 0.4,
+          rotation: 0,
+          transformOrigin: "50% 50%",
+        });
+        gsap
+          .timeline()
+          .to(
+            image,
+            {
+              x: FAR.x - 45,
+              rotation: 360,
+              scale: 1,
+              duration: 0.8,
+              ease: "none",
+            },
+            0,
+          )
+          .to(image, { y: FAR.y - 250, duration: 0.4, ease: "power2.out" }, 0)
+          .to(image, { y: FAR.y - 112, duration: 0.4, ease: "power2.in" }, 0.4)
+          .to(image, {
+            rotation: 372,
+            duration: 0.12,
+            yoyo: true,
+            repeat: 5,
+            ease: "sine.inOut",
+          })
+          .to(image, { rotation: 360, duration: 0.1 });
+      }
+      far.current?.controller?.idle();
+      setCaught(
+        result.isNew
+          ? `Gotcha! ${professor.name} joins your faculty.`
+          : `Gotcha! You now have ${result.copies} copies of ${professor.name}.`,
+      );
+    } catch (cause) {
+      if (mounted.current) setError(errorMessage(cause));
+    } finally {
+      lock.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
+
   const ended = battle && ["won", "lost", "fled"].includes(battle.status);
   const seconds = Math.max(0, Math.ceil(((deadline ?? now) - now) / 1000));
+  const fighterName = fighter?.name ?? "You";
   const art = professorArt(professor.id);
   const selectedPlayer = ownedFighters?.find(
     (fighter) => fighter.id === playerId,
@@ -253,15 +412,210 @@ export default function BattleEncounter({
           }
         }}
       >
-        <div className="battle-heading">
-          {art && <img src={art} alt="" className="encounter-portrait" />}
-          <div>
+        <div className="battle-scene">
+          <img className="battle-arena" src={ARENA_ART} alt="" />
+          <svg
+            className="battle-stage"
+            viewBox={`0 0 ${SCENE.width} ${SCENE.height}`}
+            aria-hidden="true"
+          >
+            <Stickman
+              ref={far}
+              look={lookFor(professor.id)}
+              scale={FAR.scale}
+              className={
+                battle?.status === "won" && !battle.caught ? "is-down" : ""
+              }
+            />
+            <image ref={cage} className="battle-cage" width="90" height="105" />
+            <Stickman
+              ref={near}
+              look={lookFor(fighter?.id ?? "main")}
+              facing="back"
+              scale={NEAR.scale}
+              className={battle?.status === "lost" ? "is-down" : ""}
+            />
+          </svg>
+          <div className="battle-heading">
             <p className="eyebrow">WILD PROFESSOR BATTLE</p>
             <h2 id="battle-title">{professor.name}</h2>
-            <p className="encounter-meta">Legendary · {professor.department}</p>
+            <p className="encounter-meta">
+              {professor.rarity ? `${professor.rarity} · ` : ""}
+              {professor.department}
+            </p>
+            {battle && (
+              <label className="battle-health">
+                Professor HP{" "}
+                <span>
+                  {battle.health} / {battle.maxHealth}
+                </span>
+                <progress
+                  aria-label="Professor HP"
+                  value={battle.health}
+                  max={battle.maxHealth}
+                />
+              </label>
+            )}
           </div>
+          {battle && (
+            <label className="battle-health battle-health-own">
+              {fighter ? `${fighterName} HP` : "Your HP"}{" "}
+              <span>
+                {battle.playerHealth} / {battle.playerMaxHealth}
+              </span>
+              <progress
+                aria-label="Your HP"
+                value={battle.playerHealth}
+                max={battle.playerMaxHealth}
+              />
+            </label>
+          )}
         </div>
-        {battle ? (
+        <div className="battle-panel">
+          {battle ? (
+            <>
+              {battle.feedback && (
+                <div className="battle-feedback" role="status">
+                  <strong>
+                    {battle.feedback.correct
+                      ? "Correct! No healing penalty."
+                      : `${battle.feedback.timedOut ? "Time’s up!" : "Incorrect."} ${professor.name} recovered ${battle.feedback.healed} HP (${battle.feedback.healingPercent}% of lost HP).`}
+                  </strong>
+                  <p>{battle.feedback.explanation}</p>
+                </div>
+              )}
+              {battle.status === "question" && (
+                <section
+                  className="battle-quiz"
+                  aria-labelledby="battle-question-title"
+                >
+                  <h3
+                    id="battle-question-title"
+                    tabIndex={-1}
+                    ref={questionTitle}
+                  >
+                    Pop quiz {battle.eventNumber} / 3
+                  </h3>
+                  <p>
+                    Answer in 10 seconds. A wrong answer or timeout heals 50–80%
+                    of lost HP.
+                  </p>
+                  {battle.question ? (
+                    <>
+                      <p
+                        className="battle-countdown" Can’t automatically merge. Don’t worry, you can still create the pull request. 
+                        aria-label={`${seconds} seconds remaining`}
+                      >
+                        {seconds}s left
+                      </p>
+                      <p className="battle-question-text">
+                        {battle.question.question} Can’t automatically merge. Don’t worry, you can still create the pull request. 
+                      </p>
+                      <div
+                        className="battle-choices"
+                        role="group"
+                        aria-label="Answer choices"
+                      >
+                        {battle.question.choices.map((choice, index) => (
+                          <button
+                            key={index}
+                            type="button"
+                            disabled={busy || !!error || seconds === 0}
+                            onClick={() => void send("answer", index)}
+                          >
+                            <b>{String.fromCharCode(65 + index)}.</b> {choice}
+                          </button>
+                        ))}
+                      </div>
+                      {battle.question.message && (
+                        <p>{battle.question.message}</p>
+                      )}
+                    </>
+                  ) : (
+                    <p role="status">Preparing your question…</p>
+                  )}
+                </section>
+              )} Can’t automatically merge. Don’t worry, you can still create the pull request. 
+              {ended ? (
+                <>
+                  <p className="battle-outcome">
+                    {caught ||
+                      (battle.status === "won"
+                        ? "You defeated the professor!"
+                        : battle.status === "lost"
+                          ? `${fighter ? `${fighterName} ran` : "You ran"} out of HP. Try again on your next encounter.`
+                          : "You left the battle.")}
+                  </p>
+                  {battle.status === "won" &&
+                    !battle.caught &&
+                    !!cages?.length && (
+                      <div
+                        className="battle-catch"
+                        role="group"
+                        aria-label="Throw a cage to catch them"
+                      >
+                        <p>
+                          Throw a cage to catch {professor.name}, or let them
+                          go.
+                        </p>
+                        {cages.map((owned) => (
+                          <button
+                            key={owned.id}
+                            type="button"
+                            className="secondary-button"
+                            disabled={busy}
+                            onClick={() => void throwCage(owned)}
+                          >
+                            Throw {owned.name} ({owned.quantity})
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  {battle.status === "won" &&
+                    !battle.caught &&
+                    cages?.length === 0 && (
+                      <p className="battle-note">
+                        You have no cages to catch them with. The gashapon
+                        machine in the school gives cages.
+                      </p>
+                    )}
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={onLeave}
+                  >
+                    Keep exploring →
+                  </button>
+                </>
+              ) : (
+                <div className="battle-actions">
+                  <button
+                    type="button"
+                    className="primary-button"
+                    disabled={busy || !!error || battle.status !== "fighting"}
+                    onClick={() => void send("attack")}
+                  >
+                    Attack
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={busy || !!error}
+                    onClick={() => void send("flee")}
+                  >
+                    Run away
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            <p role="status">Starting the battle…</p>
+          )}
+          {error && (
+            <div role="alert">
+              <p>{error}</p>
+        </div>
+ Can’t automatically merge. Don’t worry, you can still create the pull request.         {battle ? (
           <>
             {battle.version === 0 &&
               ownedFighters !== null &&
@@ -427,7 +781,7 @@ export default function BattleEncounter({
                   onClick={() => void send("flee")}
                 >
                   Run away
-                </button>
+                </button> Can’t automatically merge. Don’t worry, you can still create the pull request. 
               </div>
             )}
           </>
@@ -454,18 +808,32 @@ export default function BattleEncounter({
                 className="secondary-button"
                 type="button"
                 disabled={busy}
-                onClick={onLeave}
+                onClick={() =>
+                  retry.current && !conflict
+                    ? void send(retry.current.kind)
+                    : void refresh()
+                }
               >
-                Keep exploring
+                {conflict ? "Refresh battle" : "Retry"}
               </button>
-            )}
-          </div>
-        )}
-        {busy && (
-          <p className="battle-pending" role="status">
-            {waiting ? "Generating a question…" : "Updating battle…"}
-          </p>
-        )}
+              {!battle && (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={busy}
+                  onClick={onLeave}
+                >
+                  Keep exploring
+                </button>
+              )}
+            </div>
+          )}
+          {busy && (
+            <p className="battle-pending" role="status">
+              {waiting ? "Generating a question…" : "Updating battle…"}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

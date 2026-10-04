@@ -1,10 +1,14 @@
-import { ApiError, record, request } from "../../api/request";
+ Can’t automatically merge. Don’t worry, you can still create the pull request. import { ApiError, record, request } from "../../api/request";
 import type { PublicQuestion } from "../questions/types";
 
 export type BattleView = {
   id: string;
   professorId: string;
   professorName: string;
+  // The professor the player sent out, or null (or missing) if the student fights.
+  fighterId?: string | null;
+  // True once the defeated professor has been caught in a cage.
+  caught?: boolean;
   version: number;
   health: number;
   maxHealth: number;
@@ -113,19 +117,55 @@ function parseBattle(value: unknown): BattleView {
   return b as BattleView;
 }
 
-/** Starts an encounter once, with a stable id for explicit retries. */
+/**
+ * Starts an encounter once, with a stable id for explicit retries.
+ * @param fighterId - The professor the player sends out, or null to fight as the student.
+ */
 export async function startBattle(
   encounterId: string,
   professorId: string,
+  fighterId: string | null = null,
   playerProfessorId?: string,
 ): Promise<BattleView> {
   return parseBattle(
     await request("/api/battle/start", {
       encounterId,
       professorId,
+      ...(fighterId ? { fighterId } : {}),
       ...(playerProfessorId ? { playerProfessorId } : {}),
     }),
   );
+}
+/**
+ * Throws a cage at a defeated professor to catch them.
+ * @returns The battle afterwards, whether the professor is new to the player, how many copies
+ * of them the player now has, and how many of that cage are left.
+ */
+export async function catchProfessor(
+  id: string,
+  cageId: string,
+): Promise<{
+  battle: BattleView;
+  isNew: boolean;
+  copies: number;
+  cagesLeft: number;
+}> {
+  const reply = record(
+    await request(`/api/battle/${encodeURIComponent(id)}/catch`, { cageId }),
+  );
+  const copies = record(reply.item).copies;
+  if (
+    typeof reply.isNew !== "boolean" ||
+    !Number.isSafeInteger(copies) ||
+    !Number.isSafeInteger(reply.cagesLeft)
+  )
+    throw new ApiError("Invalid catch result.");
+  return {
+    battle: parseBattle(reply.battle),
+    isNew: reply.isNew,
+    copies: copies as number,
+    cagesLeft: reply.cagesLeft as number,
+  };
 }
 /** Loads authoritative battle state after a conflict or a lost reply. */
 export async function loadBattle(id: string): Promise<BattleView> {
