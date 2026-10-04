@@ -5,11 +5,10 @@ const usernameInput = $("#username");
 const passwordInput = $("#password");
 const confirmInput = $("#confirm-password");
 const tabs = [$("#login-tab"), $("#signup-tab")];
-const questionButton = $("#question-button");
-const questionMeta = $("#question-meta");
-const questionBody = $("#question-body");
-const questionHint = $("#question-hint");
+const questionCard = $("#question-card");
+const questionChoices = $("#question-choices");
 const questionStatus = $("#question-status");
+const questionNext = $("#question-next");
 let mode = "login";
 let pending = false;
 let restoring = true;
@@ -80,6 +79,7 @@ function showLobby(user, focus = true) {
     $("#account-status").textContent = user.isActive ? "Active" : "Inactive";
     $("#account-tokens").textContent = new Intl.NumberFormat().format(user.tokens);
     $("#auth-view").hidden = true;
+    $("#question-view").hidden = true;
     $("#lobby-view").hidden = false;
     showMessage($("#lobby-message"));
     $("#lobby-status").textContent = "";
@@ -87,7 +87,6 @@ function showLobby(user, focus = true) {
     resetPasswordVisibility();
     document.title = `${user.username} · Professor-Go`;
     if (focus) $("#lobby-title").focus();
-    void loadCodingQuestion();
 }
 
 function resetPasswordVisibility() {
@@ -97,35 +96,78 @@ function resetPasswordVisibility() {
     $("#toggle-password").setAttribute("aria-pressed", "false");
 }
 
-function setQuestionBusy(busy) {
-    questionPending = busy;
-    questionButton.disabled = busy;
-    questionButton.textContent = busy ? "Generating…" : "Generate question";
+// Shows the Get tokens page with a fresh question.
+function openQuestionPage() {
+    $("#lobby-view").hidden = true;
+    $("#question-view").hidden = false;
+    document.title = "Pop quiz · Professor-Go";
+    $("#question-title").focus();
+    void loadCodingQuestion();
 }
 
+// Goes back from the Get tokens page to the lobby.
+function closeQuestionPage() {
+    $("#question-view").hidden = true;
+    $("#lobby-view").hidden = false;
+    document.title = `${$("#player-name").textContent} · Professor-Go`;
+    $("#lobby-title").focus();
+}
+
+// Shows a question and its answer choices, labelled A, B, C, D.
 function renderQuestion(question) {
-    questionMeta.textContent = `${question.topic} · ${question.difficulty} · ${question.source === "gemini" ? "Gemini" : "Local fallback"}`;
-    questionBody.textContent = question.question;
-    if (question.hint) {
-        questionHint.textContent = `Hint: ${question.hint}`;
-        questionHint.hidden = false;
-    } else {
-        questionHint.hidden = true;
-    }
-    questionStatus.textContent = question.message ?? (question.source === "gemini" ? "Generated with Gemini." : "Showing a local fallback question.");
+    $("#question-meta").textContent = `${question.topic} · ${question.difficulty} · ${question.source === "gemini" ? "Gemini" : "Local fallback"}`;
+    $("#question-body").textContent = question.question;
+    questionChoices.replaceChildren(...question.choices.map((choice, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "choice-button";
+        const letter = document.createElement("span");
+        letter.className = "choice-letter";
+        letter.textContent = String.fromCharCode(65 + index);
+        const text = document.createElement("span");
+        text.className = "choice-text";
+        text.textContent = choice;
+        button.append(letter, text);
+        button.addEventListener("click", () => answerQuestion(question, index));
+        return button;
+    }));
+    $("#question-feedback").hidden = true;
+    questionCard.hidden = false;
+    questionStatus.textContent = question.message ?? "";
+}
+
+// Locks in the player's answer, highlights the right one, and explains it.
+function answerQuestion(question, chosen) {
+    const buttons = [...questionChoices.children];
+    buttons.forEach((button, index) => {
+        button.disabled = true;
+        if (index === question.answerIndex) button.classList.add("is-correct");
+        else if (index === chosen) button.classList.add("is-wrong");
+    });
+    const correct = chosen === question.answerIndex;
+    $("#question-result").textContent = correct
+        ? "Correct! Nicely done."
+        : `Not quite. The answer is ${String.fromCharCode(65 + question.answerIndex)}.`;
+    $("#question-explanation").textContent = question.explanation;
+    $("#question-explanation").hidden = !question.explanation;
+    $("#question-feedback").hidden = false;
+    questionNext.hidden = false;
+    questionNext.focus();
 }
 
 async function loadCodingQuestion() {
     if (questionPending) return;
-    setQuestionBusy(true);
+    questionPending = true;
+    questionCard.hidden = true;
+    questionNext.hidden = true;
     questionStatus.textContent = "Summoning a coding question…";
     try {
-        const result = await api("question", undefined, "/api");
-        renderQuestion(result);
+        renderQuestion(await api("question", undefined, "/api"));
     } catch (error) {
         questionStatus.textContent = error.message;
+        questionNext.hidden = false;
     } finally {
-        setQuestionBusy(false);
+        questionPending = false;
     }
 }
 
@@ -178,6 +220,9 @@ $("#recruit-button").addEventListener("click", () => {
 $("#battle-button").addEventListener("click", () => {
     $("#lobby-status").textContent = "The battle arena is still being built. Check back soon!";
 });
+$("#tokens-button").addEventListener("click", openQuestionPage);
+$("#question-back").addEventListener("click", closeQuestionPage);
+questionNext.addEventListener("click", () => { void loadCodingQuestion(); });
 
 $("#logout-button").addEventListener("click", async () => {
     const button = $("#logout-button");
@@ -196,8 +241,6 @@ $("#logout-button").addEventListener("click", async () => {
         button.disabled = false;
     }
 });
-
-questionButton.addEventListener("click", () => { void loadCodingQuestion(); });
 
 const dialog = $("#how-dialog");
 $("#how-to-play").addEventListener("click", () => dialog.showModal());

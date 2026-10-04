@@ -18,7 +18,7 @@ Create an account through the **Create account** tab; you will enter the player 
 
 Optional: create a local `.env` file in the project root to override hosts, ports, environment, or database path. Defaults work without an `.env` file. Node 24.7 may print an experimental SQLite warning; this is expected.
 
-To enable Gemini-powered coding questions in the lobby, set `GEMINI_API_KEY` in `.env`. You can also override `GEMINI_MODEL` if you want to target a different Gemini model. The app now prefers `gemini-3.8-flash` and falls back to `gemini-2.5-flash` if a configured model 404s. When the key is missing, the app shows a local fallback question so the lobby still works.
+To enable Gemini-powered coding questions on the Get tokens page, set `GEMINI_API_KEY` in `.env`. You can also override `GEMINI_MODEL` if you want to target a different Gemini model. The app now prefers `gemini-3.8-flash` and falls back to `gemini-2.5-flash` if a configured model 404s. When the key is missing, the app shows a local fallback question so the page still works. The Gemini code is in `BackEnd/Gemini.ts`; the key is sent in a request header, and when a model fails the server prints a warning (without the key) in its terminal.
 
 ## Database
 
@@ -84,7 +84,7 @@ An inventory item is `{ "level", "copies", "obtainedAt", "professor" }`, where `
 
 Successful account responses contain `{ "user": { "id", "username", "createdAt", "isActive", "tokens" } }`. Errors contain `{ "message": "..." }` and an appropriate HTTP status.
 
-The authenticated `GET /api/question` endpoint returns a coding question object with `question`, `topic`, `difficulty`, `hint`, and `source`. It uses Gemini when `GEMINI_API_KEY` is configured, otherwise it serves a local fallback question.
+The authenticated `GET /api/question` endpoint returns a multiple-choice coding question: `question`, `topic`, `difficulty`, `choices` (four different answer options), `answerIndex` (the position of the correct option, starting at 0), `explanation`, and `source` (`gemini` or `fallback`). The choices are shuffled on every request. It uses Gemini when `GEMINI_API_KEY` is configured, otherwise it serves a local fallback question. The lobby's **Get tokens** button opens a page that shows the question, lets the player pick an answer, and then reveals the correct one. Correct answers do not award tokens yet, and the answer is checked in the browser, so token rewards will need the server to check answers first.
 
 ## Verify
 
@@ -96,7 +96,7 @@ npm test
 
 Integration tests start isolated frontend/backend servers and create a temporary database. They cover registration, validation, case-insensitive and concurrent duplicate usernames, password checks, cookies, logout, inactive accounts, expiry, restart persistence, rate limiting, private file protection, gacha odds, and token spending on pulls. They do not use the development database.
 
-The backend files are `BackEnd/server.ts`, `BackEnd/database.ts`, `BackEnd/account-status.ts`, the gacha files under `BackEnd/Professor Gacha System/`, and the tests `BackEndTest/auth.test.ts` and `BackEndTest/gacha.test.ts`. Local imports include the `.ts` extension, and `tsconfig.json` checks every TypeScript file under `BackEnd/` and `BackEndTest/`. `npm test` runs every `*.test.ts` file in `BackEndTest/`. Use erasable TypeScript syntax (types, interfaces, and annotations); enums and constructor parameter properties require a separate transpiler and are rejected by this configuration.
+The backend files are `BackEnd/server.ts`, `BackEnd/database.ts`, `BackEnd/account-status.ts`, `BackEnd/Gemini.ts` (coding questions), the gacha files under `BackEnd/Professor Gacha System/`, and the tests `BackEndTest/auth.test.ts`, `BackEndTest/gacha.test.ts`, and `BackEndTest/gemini.test.ts`. Local imports include the `.ts` extension, and `tsconfig.json` checks every TypeScript file under `BackEnd/` and `BackEndTest/`. `npm test` runs every `*.test.ts` file in `BackEndTest/`. Use erasable TypeScript syntax (types, interfaces, and annotations); enums and constructor parameter properties require a separate transpiler and are rejected by this configuration.
 
 The original course-template dependencies and lint/format/coverage scripts remain in `package.json`. The legacy `build:lint`, lint, and format tasks still refer to absent `src`/`test` directories; use `npm run typecheck` and `npm test` for the current app.
 

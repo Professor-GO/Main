@@ -70,25 +70,33 @@
                         <div class="pass-player"><span class="player-avatar" id="player-initial" aria-hidden="true">P</span><div><span class="field-optional">PLAYER</span><h2 id="pass-name"></h2></div></div>
                         <dl class="pass-details"><div><dt>Enrolled on</dt><dd id="account-date"></dd></div><div><dt>Account status</dt><dd id="account-status">Active</dd></div><div><dt>Tokens</dt><dd id="account-tokens">0</dd></div></dl>
                     </div>
-
-                    <div class="up-next"><p class="eyebrow">NEXT ON THE SYLLABUS</p><div><span>Recruit your first professor</span><span class="coming-soon">Coming soon</span></div><div><span>Build a team & battle</span><span class="coming-soon">Coming soon</span></div></div>
-                    <section class="question-panel" aria-labelledby="question-title">
-                        <div class="question-panel-top">
-                            <div>
-                                <p class="eyebrow">GEMINI QUESTION LAB</p>
-                                <h2 id="question-title">Coding question</h2>
-                            </div>
-                            <button id="question-button" class="question-button" type="button">Generate question</button>
-                        </div>
-                        <p id="question-meta" class="question-meta">Waiting for a Gemini prompt.</p>
-                        <p id="question-body" class="question-body">Log in to generate a coding challenge for your campus roster.</p>
-                        <p id="question-hint" class="question-hint" hidden></p>
-                        <p id="question-status" class="question-status" role="status"></p>
-                    </section>
-
+                    <div class="lobby-actions">
+                        <button class="primary-button" id="recruit-button" type="button"><span>Recruit a professor</span><span aria-hidden="true">✦</span></button>
+                        <button class="primary-button" id="battle-button" type="button"><span>Build a team &amp; battle</span><span aria-hidden="true">⚔︎</span></button>
+                        <button class="primary-button" id="tokens-button" type="button"><span>Get tokens</span><span aria-hidden="true">?</span></button>
+                    </div>
+                    <p class="session-status" id="lobby-status" role="status"></p>
                     <p class="lobby-note">Your account is ready. Recruiting and battles are still being built — check back for your first class.</p>
                     <p id="lobby-message" class="form-message" role="alert" hidden></p>
                     <button class="secondary-button" id="logout-button" type="button">Log out <span aria-hidden="true">↗</span></button>
+                </section>
+
+                <section id="question-view" aria-labelledby="question-title" hidden>
+                    <button class="back-button" id="question-back" type="button"><span aria-hidden="true">←</span> Back to lobby</button>
+                    <p class="eyebrow"><span class="tiny-cross" aria-hidden="true">✦</span> GET TOKENS · POP QUIZ</p>
+                    <h1 id="question-title" tabindex="-1">Pop quiz<span class="accent-dot">.</span></h1>
+                    <p class="intro">Pick the answer you think is right.<br>Token rewards are coming soon.</p>
+                    <div class="question-card" id="question-card" hidden>
+                        <p class="question-meta" id="question-meta"></p>
+                        <p class="question-body" id="question-body"></p>
+                        <div class="question-choices" id="question-choices" role="group" aria-labelledby="question-body"></div>
+                        <div class="question-feedback" id="question-feedback" role="status" hidden>
+                            <strong id="question-result"></strong>
+                            <p id="question-explanation"></p>
+                        </div>
+                    </div>
+                    <p class="session-status" id="question-status" role="status"></p>
+                    <button class="secondary-button" id="question-next" type="button" hidden>Next question <span aria-hidden="true">→</span></button>
                 </section>
             </section>
 
