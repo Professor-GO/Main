@@ -132,7 +132,7 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         assert.match(await page.text(), /Professor-Go/);
         const health = await api("health");
         assert.equal(health.data.database, "connected");
-        for (const path of ["/.env", "/BackEnd/Persistence Layer/data/game.sqlite", "/BackEnd/server.ts", "/BackEnd/Persistence Layer/schema.sql", "/BackEnd/Persistence Layer/questions.sql", "/BackEnd/Persistence Layer/auth.ts"]) {
+        for (const path of ["/.env", "/BackEnd/Persistence Layer/data/game.sqlite", "/BackEnd/server.ts", "/BackEnd/Persistence Layer/schema.sql", "/BackEnd/Persistence Layer/questions.sql", "/BackEnd/Persistence Layer/auth.ts", "/src/server/bootstrap/server.ts", "/src/client/main.tsx", "/.agent-teams/professor-go-integration/team.json", "/FrontEnd/app.js", "/package.json", "/assets/%2e%2e%2f.env"]) {
             assert.equal((await fetch(origin + path)).status, 404);
         }
         assert.equal((await api("auth/login")).response.status, 405);
