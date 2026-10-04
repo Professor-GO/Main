@@ -168,13 +168,18 @@ Each professor entry includes:
 - `stats` (`health`, `attack`, `defense`, `speed`)
 - `copiesToLevelUp`
 
-The rest of the behavior is computed by [`BackEnd/Professor Gacha System/gacha.ts`](BackEnd/Professor%20Gacha%20System/gacha.ts):
+- **Rarity** comes from `avgRating`: Legendary from 4.5, Epic from 4.0, Rare from 3.0, otherwise Common.
+- **Legendary professors** have a 0.08% chance per pull. After 50 pulls in a row without one, the chance rises in a straight line until pull 80, which is always Legendary. Pulling one resets the count.
+- **Epic professors** have a 5% chance per pull. The 10th pull in a row without one is always Epic, unless it is Legendary.
+- **Rare and Common professors** cannot be pulled.
+- **Cages** fill every other pull: golden, iron, and bronze cages in a 1 : 5 : 10 ratio. Each player's cage counts are stored in the `items` table.
+- Professors of the same rarity are equally likely. The pool is never used up, so a player can pull the same professor or cage any number of times.
+- Each player's pity counts are stored in the `gacha_pity` table.
+- Each pull costs `PULL_COST` (10) tokens. A new professor joins the player's inventory at level 1 with 1 copy; a professor the player already owns gains another copy. The token deduction, the prize, and the pity counts are saved in one transaction, so a failed pull never costs tokens.
+- **Levelling up** is the player's choice: it spends the professor's `copiesToLevelUp` copies and raises their level by 1. The player always keeps the professor itself, so they need `copiesToLevelUp + 1` copies in total. For example, with `copiesToLevelUp: 2`, a player with 3 copies can level up and is left with 1.
+- A professor's **level** and **copies** are stored in each player's inventory, not in the roster, because the roster is shared by every player. There is no maximum level yet.
 
-- pull chance is based on rating
-- rarity is assigned from average rating
-- each pull costs tokens
-- duplicate pulls increase copies instead of creating a new professor record
-- level-ups spend duplicate copies and increase the professor level
+The server refuses to start if the roster has no Legendary or no Epic professor, or an entry has a duplicate `id`, a rating outside 1–5, an unknown department, or a stat or `copiesToLevelUp` that is not a positive whole number. Do not change a professor's `id` after players have recruited them; it is what the `inventory` table stores.
 
 ### Important rules
 
@@ -190,33 +195,15 @@ Use the website origin for browser requests, and send JSON for POST requests.
 
 | Method | Route | Description |
 | --- | --- | --- |
-| GET | `/api/health` | Checks server and database health |
-| POST | `/api/auth/register` | Creates an account and login session |
-| POST | `/api/auth/login` | Authenticates a user |
-| GET | `/api/auth/me` | Returns the authenticated user's public profile |
-| POST | `/api/auth/logout` | Logs the user out |
-| GET | `/api/gacha/pool` | Returns the current pull cost and professor pool |
-| POST | `/api/gacha/pull` | Pulls a professor and spends tokens |
-| GET | `/api/inventory` | Returns the player's inventory |
-| POST | `/api/inventory/level-up` | Levels up a professor using extra copies |
-
-### Inventory response shape
-
-```json
-{
-  "level": 1,
-  "copies": 2,
-  "obtainedAt": "...",
-  "professor": {
-    "id": "...",
-    "name": "..."
-  }
-}
-```
-
-### Coding question endpoint
-
-The authenticated route `GET /api/question` returns a multiple-choice programming question with:
+| GET | `/api/health` | Checks server and database availability |
+| POST | `/api/auth/register` | Creates an active account and session; accepts `username`, `password` |
+| POST | `/api/auth/login` | Authenticates an active account; accepts `username`, `password` |
+| GET | `/api/auth/me` | Returns the authenticated user's public account fields |
+| POST | `/api/auth/logout` | Revokes the current session; send `{}` |
+| GET | `/api/gacha/pool` | Returns `{ "cost", "professors", "cages" }`: the pull cost, and every professor and cage with its `pullChance` before pity |
+| POST | `/api/gacha/pull` | Logged-in players only; send `{}`. Spends tokens and returns `{ "kind": "professor", "item", "isNew", "pity", "user" }` or `{ "kind": "cage", "cage", "quantity", "pity", "user" }`, or `409` if the player has too few tokens. `isNew` is `false` when the pull added a copy of a professor the player already owned |
+| GET | `/api/inventory` | Logged-in players only. Returns `{ "inventory", "cages" }`: the player's professors, oldest first, and their cages |
+| POST | `/api/inventory/level-up` | Logged-in players only; send `{ "professorId" }`. Spends copies and returns `{ "item" }`; `404` if the player does not own that professor, `409` if they need more copies |
 
 - `question`
 - `topic`

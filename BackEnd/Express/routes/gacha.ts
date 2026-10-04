@@ -1,7 +1,7 @@
 // Gacha and inventory routes: the professor pool, recruiting, and levelling up.
 
 import { publicUser } from "../../Persistence Layer/auth.ts";
-import { GACHA_POOL, PULL_COST, inventoryFor, levelUpProfessor, pullProfessor } from "../../Professor Gacha System/gacha.ts";
+import { GACHA_CAGES, GACHA_POOL, PULL_COST, cagesFor, inventoryFor, levelUpProfessor, pullGacha } from "../../Professor Gacha System/gacha.ts";
 import type { AppContext } from "../backend.ts";
 import { allowMethods, createRouter, httpError, jsonBody } from "../http.ts";
 import { checkOrigin, requireUser } from "../session.ts";
@@ -14,23 +14,24 @@ import { checkOrigin, requireUser } from "../session.ts";
 export function gachaRoutes({ db, auth }: AppContext) {
     const router = createRouter();
 
-    // Public: the pull cost and every professor that can be recruited, with their chances.
+    // Public: the pull cost and every professor and cage, with their chances before pity.
     router.route("/gacha/pool").all(allowMethods("GET", "HEAD")).get((_request, response) => {
-        response.json({ cost: PULL_COST, professors: GACHA_POOL });
+        response.json({ cost: PULL_COST, professors: GACHA_POOL, cages: GACHA_CAGES });
     });
 
-    // Spends PULL_COST tokens to recruit a professor. 409 if the player has too few tokens.
+    // Spends PULL_COST tokens to pull a professor or a cage. 409 if the player has too few tokens.
     router.route("/gacha/pull").all(allowMethods("POST")).post(checkOrigin, jsonBody, async (request, response) => {
         const user = await requireUser(auth, request);
-        const pull = pullProfessor(db, user.id);
+        const pull = pullGacha(db, user.id);
         if (!pull) throw httpError(409, `You need ${PULL_COST} tokens to recruit a professor.`);
-        response.json({ item: pull.item, isNew: pull.isNew, user: publicUser({ ...user, tokens: pull.tokens }) });
+        const { tokens, ...prize } = pull;
+        response.json({ ...prize, user: publicUser({ ...user, tokens }) });
     });
 
-    // The logged-in player's professors.
+    // The logged-in player's professors and cages.
     router.route("/inventory").all(allowMethods("GET")).get(async (request, response) => {
         const user = await requireUser(auth, request);
-        response.json({ inventory: inventoryFor(db, user.id) });
+        response.json({ inventory: inventoryFor(db, user.id), cages: cagesFor(db, user.id) });
     });
 
     // Spends copies of a professor to raise their level. 404 if not owned, 409 if more copies are needed.
