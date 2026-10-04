@@ -1,6 +1,6 @@
 # Game Engine
 
-A university-themed game prototype with account access, a player lobby, and coding questions that award tokens. Recruitment, inventory, and level-up APIs exist; the browser recruitment and battle buttons remain placeholders.
+A university-themed game prototype with account access, a player lobby, coding questions that award tokens, and wild professor battles on the campus map. Recruitment, inventory, and level-up APIs exist; the lobby's recruitment/team buttons remain placeholders.
 
 ## Run locally
 
@@ -101,6 +101,10 @@ Browser API requests are same-origin. POST bodies are JSON objects; errors use `
 | POST | `/api/inventory/level-up` | Spend spare copies |
 | GET | `/api/question` | Player-owned question attempt, no answer or explanation |
 | POST | `/api/question/answer` | Submit `{ questionId, selectedIndex }` |
+| POST | `/api/battle/start` | Start/retry a Legendary encounter with `{ encounterId, professorId }` |
+| GET | `/api/battle/:id` | Owned battle state; settles expired questions |
+| GET | `/api/battle/:id/question` | Generate/retrieve the current private battle question |
+| POST | `/api/battle/:id/action` | Attack, answer, timeout, or flee with an idempotent action ID and expected version |
 
 Accounts begin with 50 tokens; a pull costs 10. Professor IDs remain stable inventory keys, and duplicates add copies. Level-up retains at least one copy.
 
@@ -113,17 +117,25 @@ The roster lives in `src/server/modules/recruitment/domain/professors.ts`; polic
 - Professors within each eligible tier are equally likely. Rare and Common roster entries cannot be pulled. The roster must contain a Legendary and an Epic; IDs, departments, ratings, stats and copy costs remain validated.
 - Other pulls award golden, iron or bronze cages in a 1:5:10 ratio. Cage counts live in `items`; player counters live in `gacha_pity`. Token debit, prize and counters are saved atomically. Tables are created if missing; existing accounts and inventory are retained.
 
-Pool responses include `{ cost, professors, cages }`. Pull responses are `{ kind: "professor", item, isNew, pity, user }` or `{ kind: "cage", cage, quantity, pity, user }`. Inventory returns `{ inventory, cages }`. Recruitment and battle UI remain placeholders. New `Assets/gacha/` artwork is retained privately, not exposed by the public build allowlist.
+Pool responses include `{ cost, professors, cages }`. Pull responses are `{ kind: "professor", item, isNew, pity, user }` or `{ kind: "cage", cage, quantity, pity, user }`. Inventory returns `{ inventory, cages }`. Recruitment/team UI remain placeholders; campus encounters have a separate fight UI. New `Assets/gacha/` artwork is retained privately, not exposed by the public build allowlist.
 
 ### Campus map
 
-The lobby's **Explore the campus** button opens a top-down open world, drawn on a canvas. It runs entirely in the browser:
+The lobby's **Explore the campus** button opens a top-down open world, drawn on a canvas. Map movement and spawning run in the browser; fights run on the server:
 
 - The world is 5 × 5 screens of 12 × 12 tiles. The player starts at their house in the middle screen (C3) and walks in 8 directions with WASD, the arrow keys, or the on-screen pad.
 - Walking off a screen's edge arrives at the opposite edge of the next screen; walking off the world's edge wraps around to the other side. Signposts on each edge name the next screen.
 - Scenery is generated from a fixed seed, so the map is the same on every visit. Blocking scenery stays off each screen's outer ring, so every screen can be crossed. Only a tree's trunk blocks the player; they can walk under its leaves, which then hide them.
-- Legendary professors (from `GET /api/gacha/pool`) appear at random away from the player and never at home, at most 3 at once. Walking up to one shows an encounter card; battles are not built yet. Spawns are not saved or server-checked; they should move to the server once encounters give rewards.
+- Legendary professors (from `GET /api/gacha/pool`) appear at random away from the player and never at home, at most 3 at once. Walking up to one shows an encounter card with **Fight professor** and **Keep exploring**. Fighting pauses movement until the battle ends or the player runs away. Spawns are not saved or server-checked; battles grant no capture, inventory, or token rewards.
 
-Game mechanics live in `src/client/features/world/Game Mechanics/`: the rules (layout, walking, wrapping, collisions, spawns, encounters) in `world.ts` with tests in `tests/`, and the game loop in `game.ts`. Future battle and health rules belong there too. Drawing is in `features/world/renderer.ts`, and the page in `pages/WorldPage/`. Only the artwork imported by `features/world/art.ts` (`Assets/outdoor/` and the professors' front pictures) is published; the player and house are drawn in code as placeholders.
+Map mechanics live in `src/client/features/world/Game Mechanics/`: the rules (layout, walking, wrapping, collisions, spawns, encounters) in `world.ts` with tests in `tests/`, and the game loop in `game.ts`. Battle/health rules live in `BackEnd/Game Engine/encounterBattle.ts`, SQLite battle storage in `BackEnd/Persistence Layer/encounterBattles.ts`, and authenticated routes in `src/server/modules/battles/`. Drawing is in `features/world/renderer.ts`, and the page in `pages/WorldPage/`. Only the artwork imported by `features/world/art.ts` (`Assets/outdoor/` and the professors' front pictures) is published; the player and house are drawn in code as placeholders.
+
+### Wild battle quizzes
+
+- This first encounter fight uses a student with 100 HP, 600 attack, and 20 defense as temporary combat defaults. Professors use their roster stats. A turn deals `floor(attack / defense)` damage in each direction; health cannot go below zero. Team selection and level-based stats are future work.
+- Each battle rolls a whole-HP trigger inside **2/3–3/4** of maximum professor health, another inside **1/3–3/5**, and a final trigger at **10%** (whole HP rounded down). Each event fires once, even if healing raises HP above an earlier trigger.
+- A strike pauses at a crossed checkpoint. Its remaining damage resumes after the quiz; a large or lethal strike can therefore interrupt for several quizzes before finishing. The professor counterattacks once when that strike finishes, unless defeated.
+- Each popup reuses the Gemini coding-question generator and local fallback. Combat pauses while the question is generated. The server starts a **10-second** deadline after generation. An incorrect answer or timeout heals `floor((maxHP - currentHP) * percent / 100)`, where `percent` is a uniformly random integer from **50 through 80**. Correct answers apply no healing penalty. These battle questions do not award practice tokens.
+- Battle state, the private answer, deadlines, and processed action IDs persist in SQLite. Answers are tied to the player's current battle question. Late answers count as wrong; explicit retries cannot apply damage or healing twice. Network failures show Retry; stale versions require Refresh battle. The browser map and encounter identity still reset on reload, so there is no resume-battle UI or reward-bearing encounter validation yet.
 
 Question correctness and rewards remain server-owned. A correct first answer awards one token atomically with the recorded choice. Same-choice retries are idempotent; changed answers are rejected. A lost response enables only explicit same-choice retry in the UI, not automatic resubmission. React renders generated/player content as text.

@@ -11,7 +11,11 @@ export function record(value: unknown): Record<string, unknown> {
     throw new ApiError("Something went wrong. Please try again.");
   return value as Record<string, unknown>;
 }
-export async function request(path: string, body?: unknown): Promise<unknown> {
+export async function request(
+  path: string,
+  body?: unknown,
+  timeoutMs = 12_000,
+): Promise<unknown> {
   let response: Response;
   try {
     response = await fetch(path, {
@@ -24,7 +28,7 @@ export async function request(path: string, body?: unknown): Promise<unknown> {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
           }),
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch {
     throw new ApiError(
