@@ -54,22 +54,24 @@
   },
   "scripts": {
     "start": "node src/server/bootstrap/server.ts",
-    "dev": "node src/server/bootstrap/server.ts",
+    "dev": "node scripts/dev.mjs",
     "postinstall": "git config core.hooksPath .githooks",
     "cover": "nyc --reporter text --reporter html yarn run test",
-    "build": "npm run typecheck",
-    "build:lint": "npm run typecheck && yarn prettier:check && yarn lint:check",
+    "build": "npm run typecheck && vite build",
+    "build:lint": "npm run build && npm run lint:check",
     "typecheck": "npm run typecheck:server && npm run typecheck:client",
     "typecheck:server": "tsc -p tsconfig.server.json",
     "typecheck:client": "tsc -p tsconfig.client.json",
     "test:client": "node --test \"src/client/**/*.test.ts\" && vitest run",
     "build:client": "vite build",
-    "test": "node --test \"src/server/**/*.test.ts\"",
+    "test": "npm run test:server && npm run test:client && npm run test:tooling",
+    "test:server": "node --test \"src/server/**/*.test.ts\"",
+    "test:tooling": "node --test scripts/tests/*.test.mjs",
     "test:auth": "node --test src/server/tests/auth.test.ts",
     "account:status": "node src/server/modules/accounts/infrastructure/accountStatus.ts",
-    "lint:check": "eslint src/server src/client *.config.ts",
-    "lint:fix": "eslint src/server src/client *.config.ts --fix",
-    "prettier:check": "prettier \"src/server/**/*.ts\" \"FrontEnd/**/*.{js,css,html}\" \"*.{json,mjs}\" --check",
-    "prettier:fix": "prettier \"src/server/**/*.ts\" \"FrontEnd/**/*.{js,css,html}\" \"*.{json,mjs}\" --write"
+    "lint:check": "eslint src/server src/client scripts *.config.ts",
+    "lint:fix": "eslint src/server src/client scripts *.config.ts --fix",
+    "prettier:check": "prettier \"src/**/*.{ts,tsx,css,html}\" \"scripts/**/*.mjs\" \"*.{json,mjs,ts}\" --check",
+    "prettier:fix": "prettier \"src/**/*.{ts,tsx,css,html}\" \"scripts/**/*.mjs\" \"*.{json,mjs,ts}\" --write"
   }
 }

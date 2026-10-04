@@ -64,6 +64,8 @@ function stop(): void {
 }
 process.once("SIGINT", () => { stop(); process.exit(0); });
 process.once("SIGTERM", () => { stop(); process.exit(0); });
+// The native development launcher owns this IPC lease; close if it disappears.
+if (process.send) process.once("disconnect", () => { stop(); process.exit(0); });
 main().catch((error: unknown) => {
     console.error(`Could not start Professor-Go: ${error instanceof Error ? error.message : String(error)}`);
     stop();
