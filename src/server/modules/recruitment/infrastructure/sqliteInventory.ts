@@ -3,7 +3,10 @@ import type { DatabaseSync } from "node:sqlite";
 /** An owned professor as stored in SQLite, without the shared roster details. */
 export type InventoryRow = { professor_id: string; level: number; copies: number; obtained_at: string };
 
-/** A player's pity as stored in SQLite: pulls in a row without a Legendary, and without an Epic or Legendary. */
+/** One kind of item a player owns, such as a cage, as stored in SQLite. */
+export type ItemRow = { item_id: string; quantity: number };
+
+/** A player's pulls in a row without a Legendary and without an Epic, as stored in SQLite. */
 export type PityRow = { legendary_pity: number; epic_pity: number };
 
 /**
@@ -15,6 +18,16 @@ export type PityRow = { legendary_pity: number; epic_pity: number };
 export function inventoryRows(db: DatabaseSync, userId: string): InventoryRow[] {
     return db.prepare("SELECT professor_id, level, copies, obtained_at FROM inventory WHERE user_id = ? ORDER BY id")
         .all(userId) as InventoryRow[];
+}
+
+/**
+ * Reads how many of each item, such as each cage, a player has.
+ * @param db - The open game database.
+ * @param userId - The player's account id.
+ * @returns Their item rows, leaving out items they have none of.
+ */
+export function itemRows(db: DatabaseSync, userId: string): ItemRow[] {
+    return db.prepare("SELECT item_id, quantity FROM items WHERE user_id = ? AND quantity > 0").all(userId) as ItemRow[];
 }
 
 /**
@@ -77,6 +90,25 @@ export function savePull(db: DatabaseSync, userId: string, professorId: string, 
         RETURNING professor_id, level, copies, obtained_at
     `).get(userId, professorId) as InventoryRow);
     return pull && { row: pull.saved, tokens: pull.tokens };
+}
+
+/**
+ * Spends tokens, saves the player's new pity, and adds one of an item in one transaction.
+ * @param db - The open game database.
+ * @param userId - The player's account id.
+ * @param itemId - The item selected by the gacha system, such as a cage.
+ * @param cost - The token cost of one pull.
+ * @param pity - The player's pity after this pull.
+ * @returns How many of the item the player now has and their remaining tokens, or undefined if unaffordable.
+ * @throws If saving fails; token spending is rolled back as well.
+ */
+export function saveItemPull(db: DatabaseSync, userId: string, itemId: string, cost: number, pity: PityRow): { quantity: number; tokens: number } | undefined {
+    const pull = spendOnPull(db, userId, cost, pity, () => db.prepare(`
+        INSERT INTO items (user_id, item_id) VALUES (?, ?)
+        ON CONFLICT (user_id, item_id) DO UPDATE SET quantity = quantity + 1
+        RETURNING quantity
+    `).get(userId, itemId) as { quantity: number });
+    return pull && { quantity: pull.saved.quantity, tokens: pull.tokens };
 }
 
 /**

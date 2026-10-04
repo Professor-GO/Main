@@ -8,12 +8,14 @@ type LobbyPageProps = {
   player: Player;
   focus: boolean;
   onQuestion: () => void;
+  onExplore: () => void;
   onLogout: () => void;
 };
 export default function LobbyPage({
   player,
   focus,
   onQuestion,
+  onExplore,
   onLogout,
 }: LobbyPageProps) {
   const title = useRef<HTMLHeadingElement>(null);
@@ -112,11 +114,9 @@ export default function LobbyPage({
           className="primary-button"
           id="battle-button"
           type="button"
-          onClick={() =>
-            setStatus("The battle arena is still being built. Check back soon!")
-          }
+          onClick={onExplore}
         >
-          <span>Build a team &amp; battle</span>
+          <span>Explore the campus</span>
           <span aria-hidden="true">⚔︎</span>
         </button>
         <button
@@ -133,8 +133,8 @@ export default function LobbyPage({
         {status}
       </p>
       <p className="lobby-note">
-        Your account is ready. Recruiting and battles are still being built —
-        check back for your first class.
+        Your account is ready. Explore the campus to find Legendary professors —
+        recruiting and battles are still being built.
       </p>
       <p
         id="lobby-message"

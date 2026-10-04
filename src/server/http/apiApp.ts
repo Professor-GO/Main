@@ -1,6 +1,5 @@
-// The backend Express app. Every /api/ endpoint is an oRPC procedure (see BackEnd/oRPC/);
-// Express adds the security headers, the 404 for unknown paths, and error replies.
-// The website reaches it through the frontend app's proxy (see frontend.ts).
+// The backend Express app: every /api/ route. The website reaches it through the
+// frontend app's proxy (see frontend.ts).
 
 import type { DatabaseSync } from "node:sqlite";
 import type express from "express";
@@ -10,7 +9,7 @@ import { authRoutes } from "../modules/accounts/http/routes.ts";
 import { gachaRoutes } from "../modules/recruitment/http/routes.ts";
 import { questionRoutes } from "../modules/questions/http/routes.ts";
 
-/** What the API needs from server.ts. */
+/** What the API routes need from server.ts. */
 export type AppContext = {
     // The open game database.
     db: DatabaseSync;
@@ -21,17 +20,22 @@ export type AppContext = {
 };
 
 /**
- * Creates the backend app with every API procedure. Unknown paths get 404 and wrong
- * methods get 405; errors are sent as JSON `{ message }`.
- * @param context - The database and settings the procedures use.
+ * Creates the backend app with every API route. Unknown routes get 404 and wrong methods
+ * get 405; errors are sent as JSON `{ message }`.
+ * @param context - The database and settings the routes use.
  * @returns The app, ready to pass to http.createServer().
  */
-export function createBackendApp({ db, auth, environment }: AppContext): express.Express {
-    initializeQuestions(db);
-    // Generous limit for the backend itself; the website adds a stricter one per player.
-    const allowAccountAttempt = createAttemptLimiter(500);
+export function createBackendApp(context: AppContext): express.Express {
     const app = createApp();
-    app.use(orpcMiddleware((request) => ({ request, db, auth, environment, allowAccountAttempt })));
+    const health = createRouter();
+
+    // Reports that the server and database are working.
+    health.route("/health").all(allowMethods("GET", "HEAD")).get((_request, response) => {
+        context.db.prepare("SELECT 1").get();
+        response.json({ status: "ok", environment: context.environment, database: "connected" });
+    });
+
+    app.use("/api", health, authRoutes(context), gachaRoutes(context), questionRoutes(context));
     app.use(notFound);
     app.use(errorHandler);
     return app;

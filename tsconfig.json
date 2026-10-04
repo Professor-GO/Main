@@ -1,21 +1,4 @@
 {
-	"extends": "@tsconfig/node24/tsconfig.json",
-	"compilerOptions": {
-		"module": "NodeNext",
-		"moduleResolution": "NodeNext",
-		"strict": true,
-		"noEmit": true,
-		"allowImportingTsExtensions": true,
-		"erasableSyntaxOnly": true,
-		"verbatimModuleSyntax": true,
-		"types": ["node"]
-	},
-	"include": [
-		"vite.config.ts",
-		"BackEnd/**/*.ts",
-		"BackEndTest/**/*.ts"
-	],
-	"exclude": [
-		"node_modules"
-	]
+  "extends": "./tsconfig.server.json",
+  "include": ["src/server/**/*.ts", "BackEndTest/**/*.ts", "vite.config.ts"]
 }
