@@ -1,13 +1,13 @@
 // The professors that can be recruited through the gacha.
 //
 // Edit this list to change the roster. Pull chances and rarities are calculated
-// from avgRating in ../gacha.ts, so they never need to be entered by hand:
+// from avgRating in ../application/recruitment.ts, so they never need to be entered by hand:
 // the higher a professor's rating, the harder they are to pull. Health and attack
 // are calculated from avgRating below, in inverse: the higher the rating, the lower they are.
 //
 // This list is shared by every player. Anything that differs from player to
 // player, such as a professor's level, is stored in the inventory table instead
-// (see BackEnd/Persistence Layer/schema.sql).
+// (see src/server/storage/schema.sql).
 //
 // The names and images match the folders in Assets/characters. The ratings,
 // departments, defense, speed, and copiesToLevelUp are still placeholders until the real values are chosen.

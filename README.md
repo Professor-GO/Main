@@ -11,7 +11,7 @@ npm install --ignore-scripts
 npm run dev
 ```
 
-Open `http://127.0.0.1:3000`. The native development launcher runs Vite on the website port and Express on API port 3001. It loads repository-root `.env`, preserves the website Host and cookies through the API proxy, and closes its API child when the launcher stops. Ctrl+C stops the development application. `--ignore-scripts` avoids the legacy postinstall Git hooks-path mutation.
+Open `http://127.0.0.1:3000`. The native development launcher runs Vite on the website port and Express on API port 3001. It loads repository-root `.env`, preserves the website Host and cookies through the API proxy, and closes its API child when the launcher stops. Ctrl+C stops the development application. `--ignore-scripts` disables dependency lifecycle scripts; the obsolete repository postinstall hook has been removed.
 
 To run the built application without Vite:
 
@@ -55,11 +55,16 @@ src/server/storage/     SQLite initialization and schema
 scripts/dev.mjs         Native Vite/API development lifecycle
 scripts/tests/          Disposable-database development proxy/cleanup checks
 dist/client/            Generated deployable client assets
-FrontEnd/               Nonserved legacy visual/behavior reference pending parity review
 Assets/                 Private artwork, not automatically published
 ```
 
-This milestone delivers the runnable client/server framework and preserves existing behavior. The deeper domain/use-case/adapter extraction from the original full refactor plan is **deferred**. Folder relocation does not imply that full architecture work or independent parity review is complete. Work remains on `chore/integration`; no merge, push, or deployment is implied.
+This milestone delivers the runnable client/server framework and preserves existing behavior. The deeper domain/use-case/adapter extraction from the original full refactor plan is **deferred**. Independent framework and browser parity review passed before removing the obsolete `FrontEnd/` implementation; its historical version remains in Git. This does not imply that the deeper architecture work is complete. Work remains on `chore/integration`; no merge, push, or deployment is implied.
+
+### Legacy cleanup
+
+The old `FrontEnd/`, `BackEnd/` and `BackEndTest/` source trees are no longer maintained or required to build the application. Backend code and tests live under `src/server/`; obsolete frontend code was removed after parity verification. Historical implementations remain available in Git. Empty legacy directories have also been removed from the working copy.
+
+The `BackEnd/` name remains only in the backward-compatible default database location and security regression probes. Starting with the default database configuration may recreate its data directory; that is persistent storage, not a second backend implementation. Do not delete existing databases, legacy-table preservation logic, or private-path tests as obsolete code. Unused legacy dependencies, the old coverage command and the postinstall Git hook mutation have been removed; the maintained runners are Node's test runner and Vitest.
 
 ## Verification
 
@@ -71,13 +76,13 @@ npm run build
 ```
 
 - Typecheck runs `tsconfig.server.json` (NodeNext) and `tsconfig.client.json` (browser/bundler) separately.
-- `test:server` uses Node's runner for `src/server/**/*.test.ts`. Run one suite directly with Node or use `test:auth`.
+- `test:server` uses Node's runner for `src/server/**/*.test.ts`, with file concurrency limited to one to avoid competing server startups exhausting fixed readiness deadlines. Assertions and timeout thresholds are unchanged, including the concurrent-signup test. Run one suite directly with Node or use `test:auth`.
 - `test:client` first runs existing pure-state `.test.ts` tests with Node, then Vitest discovers only `.test.tsx` and `.vitest.ts` files. These discovery patterns do not overlap.
 - `test:tooling` starts the real dev launcher against temporary SQLite, checks cookie/origin/rate-limit/private-file behavior, stops it, and verifies both ports close.
 - `npm test` runs all three groups. Server HTTP tests build their own disposable client assets where required.
 - ESLint covers maintained client/server/config/tooling sources, including a client-to-server import restriction. Prettier is separate and targets maintained sources.
 
-The previously observed intermittent authentication child-startup timeout is recorded in the vault milestone evidence. Do not conceal recurrence by increasing a threshold without diagnosis. Dependency installation reports existing audit advisories; do not apply forced dependency upgrades as part of framework work.
+The previously observed intermittent authentication child-startup timeout is recorded in the vault milestone evidence. Do not conceal recurrence by increasing a threshold without diagnosis. Unused legacy dependencies and test tooling have been removed. Recheck dependency advisories with `npm audit`; a clean audit is point-in-time evidence, not a security guarantee.
 
 ## Contracts and security
 

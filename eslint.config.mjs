@@ -1,4 +1,4 @@
-/** Lint the maintained legacy baseline with TypeScript and ownership-specific globals. */
+/** Lint maintained client, server and tooling sources with ownership-specific globals. */
 import tseslint from "typescript-eslint";
 import globals from "globals";
 
@@ -33,7 +33,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/client/**/*.{ts,tsx}", "FrontEnd/**/*.js"],
+    files: ["src/client/**/*.{ts,tsx}"],
     languageOptions: { globals: globals.browser },
   },
   {

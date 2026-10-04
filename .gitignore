@@ -9,5 +9,7 @@ dist/
 coverage/
 *.log
 AGENTS.md
+/context/
+/.agent-teams/
 PROJECT_MEMORY.md
 Hackathon Planning.docx
