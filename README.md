@@ -1,4 +1,4 @@
-# Professor-Go
+# Game Engine
 
 A university-themed game prototype with account access, a player lobby, and coding questions that award tokens. Recruitment, inventory, and level-up APIs exist; the browser recruitment and battle buttons remain placeholders.
 
