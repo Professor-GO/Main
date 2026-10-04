@@ -68,7 +68,7 @@ test("a higher-level professor hits harder and takes less damage", () => {
   assert.deepEqual(levelBonuses(state), { player: 100, enemy: 200 });
 
   const hit = enemyStrike(state);
-  assert.equal(hit.playerHealth, 1000 - Math.floor((400 * 2) / 40));
+  assert.equal(hit.playerHealth, 1000 - 24);
   const struck = strike(state);
   assert.equal(struck.health, 10_000 - Math.floor(300 / (50 * 2)));
 });
@@ -80,7 +80,7 @@ test("a higher-level fighter gets the bonus instead", () => {
   assert.equal(strike(state).health, 10_000 - Math.floor((300 * 3) / 50));
   assert.equal(
     enemyStrike(state).playerHealth,
-    1000 - Math.floor(400 / (40 * 3)),
+    1000 - 4,
   );
 });
 
@@ -88,7 +88,7 @@ test("fighters of the same level fight on the base stats", () => {
   const state = fightAt(25, 25);
   assert.deepEqual(levelBonuses(state), { player: 100, enemy: 100 });
   assert.equal(strike(state).health, 10_000 - Math.floor(300 / 50));
-  assert.equal(enemyStrike(state).playerHealth, 1000 - Math.floor(400 / 40));
+  assert.equal(enemyStrike(state).playerHealth, 1000 - 12);
 });
 
 test("the bonus is worked out exactly, with no rounding drift", () => {
@@ -110,8 +110,8 @@ test("the bonus is worked out exactly, with no rounding drift", () => {
     ]),
     "t",
   );
-  // 20 x 200% / 2 is exactly 20.
-  assert.equal(enemyStrike(state).playerHealth, 1000 - 20);
+  // 20 x 200% / 2 x 120% is exactly 24.
+  assert.equal(enemyStrike(state).playerHealth, 1000 - 24);
 });
 
 test("battles without a level (saved before levels, or base-rule tests) give no bonus", () => {

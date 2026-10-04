@@ -43,7 +43,7 @@ test("combat waits for an owned professor and rejects punches and unowned summon
   assert.equal(live.activeProfessorId, "two");
   assert.equal(live.playerHealth, 70);
   assert.equal(strike(live).health, 190);
-  assert.equal(enemyStrike(live).playerHealth, 50);
+  assert.equal(enemyStrike(live).playerHealth, 46);
   assert.equal(state.activeProfessorId, undefined);
   assert.throws(() => summon(live, "one"));
 });

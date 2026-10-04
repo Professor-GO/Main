@@ -17,6 +17,8 @@ export const WILD_RARITIES: readonly string[] = ["Rare", "Epic"];
  * this many percent: a level 30 professor against a level 10 fighter has 200% of their stats.
  */
 export const LEVEL_BONUS_PERCENT = 5;
+/** Enemy landed hits deal 20% more damage, before whole-HP rounding. */
+const ENEMY_DAMAGE_PERCENT = 120;
 
 export type SummonFighter = {
   id: string;
@@ -178,17 +180,21 @@ export function levelBonuses(state: CombatState): { player: number; enemy: numbe
 
 /**
  * A landed hit deals floor(attack / defense), with a minimum of one damage. Each side's stat is
- * first scaled by that side's level bonus, worked out in whole numbers so the floor is exact.
+ * first scaled by that side's level bonus and any damage bonus, using whole percentages and
+ * rounding down once at the end.
  */
 function hitDamage(
   attack: number,
   attackBonus: number,
   defense: number,
   defenseBonus: number,
+  damagePercent = 100,
 ): number {
   return Math.max(
     1,
-    Math.floor((attack * attackBonus) / (defense * defenseBonus)),
+    Math.floor(
+      (attack * attackBonus * damagePercent) / (defense * defenseBonus * 100),
+    ),
   );
 }
 
@@ -224,6 +230,7 @@ export function enemyStrike(state: CombatState): CombatState {
         bonus.enemy,
         state.playerStats?.defense ?? STUDENT_STATS.defense,
         bonus.player,
+        ENEMY_DAMAGE_PERCENT,
       ),
   );
   if (next.playerHealth === 0) {
