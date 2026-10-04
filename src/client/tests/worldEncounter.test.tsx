@@ -1,14 +1,17 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
-import type { WorldGame, WorldGameOptions } from "../features/world/game";
+import type {
+  WorldGame,
+  WorldGameOptions,
+} from "../features/world/Game Mechanics/game";
 import WorldPage from "../pages/WorldPage/WorldPage";
 
 // The real game needs a canvas and animation frames; this stand-in lets the test act as the
 // game, reporting screens and encounters to the page.
 const started: WorldGameOptions[] = [];
 const endEncounter = vi.fn();
-vi.mock("../features/world/game", () => ({
+vi.mock("../features/world/Game Mechanics/game", () => ({
   startWorldGame: (options: WorldGameOptions): WorldGame => {
     started.push(options);
     return { setInput: vi.fn(), endEncounter, stop: vi.fn() };

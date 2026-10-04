@@ -8,7 +8,7 @@ import mailboxUrl from "../../../../Assets/outdoor/mailbox_red.png";
 import oakUrl from "../../../../Assets/outdoor/tree_oak.png";
 import pineUrl from "../../../../Assets/outdoor/tree_pine.png";
 import rockUrl from "../../../../Assets/outdoor/rock_gray.png";
-import type { PropKind } from "./world";
+import type { PropKind } from "./Game Mechanics/world";
 
 /** The picture for each kind of scenery that has one. The house is drawn in code. */
 export const PROP_ART: Partial<Record<PropKind, string>> = {

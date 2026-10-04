@@ -3,19 +3,19 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { errorMessage } from "../../api/request";
 import { loadLegendaries } from "../../features/world/api";
 import { professorArt } from "../../features/world/art";
-import { startWorldGame } from "../../features/world/game";
+import { startWorldGame } from "../../features/world/Game Mechanics/game";
 import type {
   LegendaryProfessor,
   WorldGame,
   WorldHud,
-} from "../../features/world/game";
+} from "../../features/world/Game Mechanics/game";
 import {
   HOME_SCREEN,
   WORLD_SCREENS,
   isHome,
   screenName,
-} from "../../features/world/world";
-import type { MoveInput } from "../../features/world/world";
+} from "../../features/world/Game Mechanics/world";
+import type { MoveInput } from "../../features/world/Game Mechanics/world";
 import "./WorldPage.css";
 
 type WorldPageProps = { onBack: () => void };
@@ -55,7 +55,7 @@ const NO_MOVE: MoveInput = {
 };
 
 /**
- * The open campus: a 5 × 5 map of screens the player walks around in 2.5D, starting at their
+ * The open campus: a 5 × 5 map of screens, seen from above, that the player walks around, starting at their
  * house in the middle. Legendary professors appear at random; walking up to one opens an
  * encounter card. Battles are not built yet.
  */

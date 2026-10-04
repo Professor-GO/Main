@@ -2,7 +2,8 @@
  * Rules for the open-world campus map: its layout, walking, wrapping, collisions, and where
  * Legendary professors appear. Nothing here touches the DOM, so it runs (and is tested) in Node.
  *
- * Coordinates are in tiles. The world is WORLD_SCREENS × WORLD_SCREENS screens, and each screen
+ * The map is seen from straight above. Coordinates are in tiles: x grows to the right and y
+ * grows down the screen. The world is WORLD_SCREENS × WORLD_SCREENS screens, and each screen
  * is SCREEN_TILES × SCREEN_TILES tiles, so x and y both run from 0 up to (not including)
  * WORLD_TILES. Walking off one screen puts the player on the opposite edge of the next screen,
  * and walking off the edge of the world wraps around to the opposite side.
@@ -25,7 +26,7 @@ export const ENCOUNTER_RADIUS = 0.85;
 
 /** A position in the world, in tiles. */
 export type Point = { x: number; y: number };
-/** One screen of the map, counted from 0 at the top-left (north) corner. */
+/** One screen of the map, counted from 0 at the top-left corner. */
 export type Screen = { col: number; row: number };
 
 /**
@@ -41,19 +42,18 @@ export type MoveInput = {
   right: boolean;
 };
 
-// On an isometric map, the world's x axis points down-right on the screen and its y axis
-// points down-left. So "up the screen" is -x and -y together, "right" is +x and -y, and the
-// diagonals line up with a single world axis. Each vector is one tile long.
+// The map is seen from straight above: x grows to the right and y grows down the screen.
+// Each vector is one tile long, so diagonals are no faster than straight lines.
 const HALF_ROOT_TWO = Math.SQRT1_2;
 export const DIRECTION_VECTORS: Readonly<Record<Direction, Point>> = {
-  n: { x: -HALF_ROOT_TWO, y: -HALF_ROOT_TWO },
-  ne: { x: 0, y: -1 },
-  e: { x: HALF_ROOT_TWO, y: -HALF_ROOT_TWO },
-  se: { x: 1, y: 0 },
-  s: { x: HALF_ROOT_TWO, y: HALF_ROOT_TWO },
-  sw: { x: 0, y: 1 },
-  w: { x: -HALF_ROOT_TWO, y: HALF_ROOT_TWO },
-  nw: { x: -1, y: 0 },
+  n: { x: 0, y: -1 },
+  ne: { x: HALF_ROOT_TWO, y: -HALF_ROOT_TWO },
+  e: { x: 1, y: 0 },
+  se: { x: HALF_ROOT_TWO, y: HALF_ROOT_TWO },
+  s: { x: 0, y: 1 },
+  sw: { x: -HALF_ROOT_TWO, y: HALF_ROOT_TWO },
+  w: { x: -1, y: 0 },
+  nw: { x: -HALF_ROOT_TWO, y: -HALF_ROOT_TWO },
 };
 
 /**
@@ -141,7 +141,10 @@ export type Footprint =
   | { kind: "circle"; radius: number }
   | { kind: "box"; halfWidth: number; halfDepth: number };
 
-/** One piece of scenery, standing at a point in the world. */
+/**
+ * One piece of scenery. Its x and y are where its base touches the ground (for a tree, the
+ * bottom of its trunk), and it is drawn standing upright from there.
+ */
 export type Prop = {
   kind: PropKind;
   x: number;
@@ -150,14 +153,41 @@ export type Prop = {
   footprint: Footprint | null;
 };
 
-// How much space each blocking kind of scenery takes up, in tiles.
+// How much ground each blocking kind of scenery takes up, in tiles. For trees this is only
+// the trunk: the leaves and branches hang overhead, so the player can walk under them.
 const PROP_RADIUS: Partial<Record<PropKind, number>> = {
-  oak: 0.45,
-  pine: 0.4,
+  oak: 0.2,
+  pine: 0.18,
   bush: 0.4,
   rock: 0.35,
   mailbox: 0.2,
 };
+
+/** The trees, whose leaves and branches the player can walk under. */
+export const TREE_KINDS: readonly PropKind[] = ["oak", "pine"];
+/**
+ * The area a tree's leaves and branches cover, in tiles: this far to either side of the trunk,
+ * and from the trunk's base this far up the screen. The renderer draws trees this size.
+ */
+export const CANOPY = { halfWidth: 1, height: 2.3 };
+
+/**
+ * Checks whether a point is under a tree's leaves, where the tree is drawn over anything there.
+ * @param map - The map.
+ * @param point - The point (already wrapped onto the world).
+ * @returns True if a tree's canopy hangs over the point.
+ */
+export function isUnderCanopy(map: WorldMap, point: Point): boolean {
+  return map
+    .propsOn(screenOf(point))
+    .some(
+      (prop) =>
+        TREE_KINDS.includes(prop.kind) &&
+        Math.abs(point.x - prop.x) < CANOPY.halfWidth &&
+        point.y < prop.y &&
+        prop.y - point.y < CANOPY.height,
+    );
+}
 // The chance of each blocking kind when filling a screen. They add up to 1.
 const SCENERY_MIX: readonly [PropKind, number][] = [
   ["oak", 0.35],
@@ -224,17 +254,30 @@ export function buildScreen(screen: Screen): Prop[] {
   const props: Prop[] = home
     ? [
         HOUSE,
+        // The mailbox stands against the front wall beside the door, so there is no narrow
+        // gap behind it to get stuck in and it is out of the way of the doorstep.
         {
           kind: "mailbox",
           x: HOUSE.x + 1.3,
-          y: HOUSE.y + 2.2,
+          y: HOUSE.y + 1.85,
           footprint: { kind: "circle", radius: PROP_RADIUS.mailbox! },
         },
       ]
     : [];
-  // Keeps the yard around the house and the doorstep clear.
-  const inYard = (x: number, y: number) =>
-    home && Math.hypot(x - HOUSE.x, y - (HOUSE.y + 0.8)) < 3.6;
+  // Keeps the yard around the house and the doorstep clear, including of overhanging leaves.
+  const yard = { x: HOUSE.x, y: HOUSE.y + 0.8, radius: 3.6 };
+  const inYard = (x: number, y: number, kind: PropKind) => {
+    if (!home) return false;
+    // For a tree, the nearest point of its canopy to the middle of the yard.
+    const tree = TREE_KINDS.includes(kind);
+    const nearestX = tree
+      ? Math.max(x - CANOPY.halfWidth, Math.min(yard.x, x + CANOPY.halfWidth))
+      : x;
+    const nearestY = tree
+      ? Math.max(y - CANOPY.height, Math.min(yard.y, y))
+      : y;
+    return Math.hypot(nearestX - yard.x, nearestY - yard.y) < yard.radius;
+  };
   const solids = home
     ? 6 + Math.floor(random() * 3)
     : 9 + Math.floor(random() * 6);
@@ -247,7 +290,7 @@ export function buildScreen(screen: Screen): Prop[] {
     const x = left + 1.5 + Math.floor(random() * (SCREEN_TILES - 2));
     const y = top + 1.5 + Math.floor(random() * (SCREEN_TILES - 2));
     const kind = pickKind(random());
-    if (inYard(x, y)) continue;
+    if (inYard(x, y, kind)) continue;
     if (
       props.some(
         (prop) =>
@@ -461,8 +504,8 @@ export function pickSpawnPoint(
         Math.floor(random() * (SCREEN_TILES - 2)),
     };
     if (wrappedDistance(point, player) < SPAWNING.minDistance) continue;
-    // Leave room around them, so they never stand inside a tree.
-    if (isBlocked(map, point, 0.6)) continue;
+    // Leave room around them, and keep them out from under the trees, where they'd be hidden.
+    if (isBlocked(map, point, 0.6) || isUnderCanopy(map, point)) continue;
     return point;
   }
   return null;

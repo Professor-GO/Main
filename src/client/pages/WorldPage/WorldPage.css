@@ -17,7 +17,8 @@
 }
 .world-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
+  grid-template-columns: minmax(0, 600px) 260px;
+  justify-content: center;
   gap: 24px;
   align-items: start;
 }
@@ -36,7 +37,7 @@
   display: block;
   width: 100%;
   height: auto;
-  aspect-ratio: 960 / 560;
+  aspect-ratio: 1;
 }
 .world-canvas:focus-visible {
   outline: 3px solid #598147;
@@ -198,7 +199,7 @@
 }
 @media (max-width: 960px) {
   .world-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 600px);
   }
   .world-side {
     grid-template-columns: 1fr auto;
