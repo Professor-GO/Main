@@ -96,12 +96,23 @@ Browser API requests are same-origin. POST bodies are JSON objects; errors use `
 | GET | `/api/auth/me` | Public profile with string ID and token balance |
 | POST | `/api/auth/logout` | Revoke session |
 | GET | `/api/gacha/pool` | Roster and pull cost |
-| POST | `/api/gacha/pull` | Spend tokens and acquire professor atomically |
-| GET | `/api/inventory` | Owned professors |
+| POST | `/api/gacha/pull` | Spend tokens, award professor or cage, and update pity atomically |
+| GET | `/api/inventory` | Owned professors and cages |
 | POST | `/api/inventory/level-up` | Spend spare copies |
 | GET | `/api/question` | Player-owned question attempt, no answer or explanation |
 | POST | `/api/question/answer` | Submit `{ questionId, selectedIndex }` |
 
-Accounts begin with 50 tokens; a pull costs 10. Professor IDs remain stable inventory keys, draw weights remain normalized inverse ratings, and duplicates add copies. Level-up retains at least one copy.
+Accounts begin with 50 tokens; a pull costs 10. Professor IDs remain stable inventory keys, and duplicates add copies. Level-up retains at least one copy.
+
+### Recruitment rules merged from main
+
+The roster lives in `src/server/modules/recruitment/domain/professors.ts`; policy lives in `src/server/modules/recruitment/application/recruitment.ts`.
+
+- Legendary professors share a 0.08% base chance. After 50 pulls without one, the chance rises linearly to a guarantee on pull 80.
+- Epic professors share a 5% base chance. The 10th pull without an Epic guarantees an Epic unless it is Legendary; Legendary takes precedence when both guarantees are due.
+- Professors within each eligible tier are equally likely. Rare and Common roster entries cannot be pulled. The roster must contain a Legendary and an Epic; IDs, departments, ratings, stats and copy costs remain validated.
+- Other pulls award golden, iron or bronze cages in a 1:5:10 ratio. Cage counts live in `items`; player counters live in `gacha_pity`. Token debit, prize and counters are saved atomically. Tables are created if missing; existing accounts and inventory are retained.
+
+Pool responses include `{ cost, professors, cages }`. Pull responses are `{ kind: "professor", item, isNew, pity, user }` or `{ kind: "cage", cage, quantity, pity, user }`. Inventory returns `{ inventory, cages }`. Recruitment and battle UI remain placeholders. New `Assets/gacha/` artwork is retained privately, not exposed by the public build allowlist.
 
 Question correctness and rewards remain server-owned. A correct first answer awards one token atomically with the recorded choice. Same-choice retries are idempotent; changed answers are rejected. A lost response enables only explicit same-choice retry in the UI, not automatic resubmission. React renders generated/player content as text.
