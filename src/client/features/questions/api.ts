@@ -1,8 +1,14 @@
 import { ApiError, record, request } from "../../api/request";
 import type { PublicQuestion, QuestionAnswer } from "./types";
 const invalid = () => new ApiError("Something went wrong. Please try again.");
-export async function loadQuestion(): Promise<PublicQuestion> {
-  const q = record(await request("/api/question"));
+/**
+ * Loads a new question.
+ * @param from - "teacher" for one of the school teacher's questions, which pay more tokens.
+ */
+export async function loadQuestion(from?: "teacher"): Promise<PublicQuestion> {
+  const q = record(
+    await request(from ? `/api/question?from=${from}` : "/api/question"),
+  );
   if (
     typeof q.id !== "string" ||
     (q.source !== "gemini" && q.source !== "fallback") ||
@@ -41,7 +47,9 @@ export async function submitAnswer(
     a.answerIndex < 0 ||
     a.answerIndex > 3 ||
     typeof a.explanation !== "string" ||
-    (a.tokensAwarded !== 0 && a.tokensAwarded !== 1) ||
+    typeof a.tokensAwarded !== "number" ||
+    !Number.isSafeInteger(a.tokensAwarded) ||
+    a.tokensAwarded < 0 ||
     typeof a.tokens !== "number" ||
     !Number.isSafeInteger(a.tokens) ||
     a.tokens < 0 ||

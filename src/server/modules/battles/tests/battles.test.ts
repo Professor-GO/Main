@@ -79,7 +79,7 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   let reply = await call("battle/start", {
     level: 10,
     encounterId: id,
-    professorId: "frank-wood",
+    professorId: "craig-scratchley",
   });
   assert.equal(reply.status, 200);
   assert.equal(reply.data.status, "summoning");
@@ -91,7 +91,7 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
       (
         await call("battle/start", {
           encounterId: randomUUID(),
-          professorId: "frank-wood",
+          professorId: "craig-scratchley",
           level,
         })
       ).status,
@@ -161,18 +161,18 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   assert.equal(
     (await call("battle/start", {
         encounterId: id,
-        professorId: "frank-wood",
+        professorId: "craig-scratchley",
         level: 10,
       }))
       .data.health,
-    50,
+    62,
   );
   assert.equal(
     (
       await call("battle/start", {
         level: 10,
         encounterId: randomUUID(),
-        professorId: "tor-aamodt",
+        professorId: "frank-wood",
       })
     ).status,
     400,
@@ -367,7 +367,7 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   await call("battle/start", {
     level: 10,
     encounterId: anotherId,
-    professorId: "frank-wood",
+    professorId: "craig-scratchley",
   });
   // A knocked-out fighter stays unavailable after a persisted read. A reserve resumes
   // the same opponent/checkpoints, and duplicate copies do not add extra fighters.
@@ -439,7 +439,7 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   await call("battle/start", {
     level: 10,
     encounterId: rollbackId,
-    professorId: "frank-wood",
+    professorId: "craig-scratchley",
   });
   db.exec(
     "CREATE TRIGGER fail_battle_receipt BEFORE INSERT ON encounter_actions BEGIN SELECT RAISE(ABORT, 'test write failure'); END;",
@@ -457,6 +457,6 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
       ),
     /test write failure/,
   );
-  assert.equal(readBattle(db, account.user.id, rollbackId).combat.health, 50);
+  assert.equal(readBattle(db, account.user.id, rollbackId).combat.health, 62);
   assert.equal(db.isTransaction, false);
 });

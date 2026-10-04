@@ -134,9 +134,10 @@ export type PropKind =
   | "rock"
   | "flowers"
   | "mailbox"
-  | "house";
+  | "house"
+  | "school";
 
-/** The space a piece of scenery blocks: a circle, or (for the house) a rectangle. */
+/** The space a piece of scenery blocks: a circle, or (for a building) a rectangle. */
 export type Footprint =
   | { kind: "circle"; radius: number }
   | { kind: "box"; halfWidth: number; halfDepth: number };
@@ -209,6 +210,48 @@ export const HOUSE: Prop = {
 };
 /** Where the player starts: on the doorstep, just in front of the house door. */
 export const START: Point = { x: HOUSE.x, y: HOUSE.y + 2.6 };
+/** The screen with the school: the one to the right of home. */
+export const SCHOOL_SCREEN: Screen = { col: 3, row: 2 };
+/** The school, in the middle of its screen. It is wider than the house. */
+export const SCHOOL: Prop = {
+  kind: "school",
+  x: SCHOOL_SCREEN.col * SCREEN_TILES + SCREEN_TILES / 2,
+  y: SCHOOL_SCREEN.row * SCREEN_TILES + SCREEN_TILES / 2,
+  footprint: { kind: "box", halfWidth: 2.5, halfDepth: 1.5 },
+};
+
+/** The buildings the player can go into. */
+export type Building = "home" | "school";
+/** Each building's door: the middle of its front wall, which faces down the screen. */
+export const DOORS: Readonly<Record<Building, Point>> = {
+  home: { x: HOUSE.x, y: HOUSE.y + 1.5 },
+  school: { x: SCHOOL.x, y: SCHOOL.y + 1.5 },
+};
+/** How close to a door the player must stand to go in, in tiles. */
+export const DOOR_REACH = 1.2;
+
+/**
+ * Finds the building whose door the player is standing at.
+ * @param point - Where the player is.
+ * @returns The building, or null if they are not in front of a door.
+ */
+export function doorAt(point: Point): Building | null {
+  for (const building of ["home", "school"] as const) {
+    const door = DOORS[building];
+    if (point.y > door.y && wrappedDistance(point, door) < DOOR_REACH)
+      return building;
+  }
+  return null;
+}
+
+/**
+ * Finds where the player stands after walking out of a building: on its doorstep.
+ * @param building - The building they left.
+ * @returns The spot just in front of its door.
+ */
+export function doorstep(building: Building): Point {
+  return { x: DOORS[building].x, y: DOORS[building].y + 0.9 };
+}
 
 /**
  * Makes a random number generator that always gives the same numbers for the same seed
@@ -237,10 +280,19 @@ export function isHome(screen: Screen): boolean {
 }
 
 /**
+ * Checks whether a screen is the one with the school.
+ * @param screen - The screen.
+ * @returns True for the school's screen.
+ */
+export function isSchoolScreen(screen: Screen): boolean {
+  return screen.col === SCHOOL_SCREEN.col && screen.row === SCHOOL_SCREEN.row;
+}
+
+/**
  * Lays out the scenery on one screen. The layout is the same every time for the same screen.
  * Blocking scenery stays off the outer ring of tiles, so the player can always cross into the
  * next screen, and keeps PROP_SPACING apart. The home screen has the house, a mailbox, and a
- * clear yard around them.
+ * clear yard around them; the school's screen has the school and a clear yard around it.
  * @param screen - The screen to lay out.
  * @returns Its scenery, in world coordinates.
  */
@@ -249,6 +301,8 @@ export function buildScreen(screen: Screen): Prop[] {
     WORLD_SEED + screen.col * 7919 + screen.row * 104729,
   );
   const home = isHome(screen);
+  // The building on this screen, if it has one.
+  const building = home ? HOUSE : isSchoolScreen(screen) ? SCHOOL : null;
   const left = screen.col * SCREEN_TILES;
   const top = screen.row * SCREEN_TILES;
   const props: Prop[] = home
@@ -263,11 +317,17 @@ export function buildScreen(screen: Screen): Prop[] {
           footprint: { kind: "circle", radius: PROP_RADIUS.mailbox! },
         },
       ]
-    : [];
-  // Keeps the yard around the house and the doorstep clear, including of overhanging leaves.
-  const yard = { x: HOUSE.x, y: HOUSE.y + 0.8, radius: 3.6 };
+    : building
+      ? [building]
+      : [];
+  // Keeps the yard around the building and its doorstep clear, including of overhanging leaves.
+  const yard = {
+    x: building?.x ?? 0,
+    y: (building?.y ?? 0) + 0.8,
+    radius: home ? 3.6 : 4.6,
+  };
   const inYard = (x: number, y: number, kind: PropKind) => {
-    if (!home) return false;
+    if (!building) return false;
     // For a tree, the nearest point of its canopy to the middle of the yard.
     const tree = TREE_KINDS.includes(kind);
     const nearestX = tree
@@ -278,12 +338,12 @@ export function buildScreen(screen: Screen): Prop[] {
       : y;
     return Math.hypot(nearestX - yard.x, nearestY - yard.y) < yard.radius;
   };
-  const solids = home
+  const solids = building
     ? 6 + Math.floor(random() * 3)
     : 9 + Math.floor(random() * 6);
   for (
     let attempt = 0;
-    attempt < 200 && countSolid(props) < solids + (home ? 2 : 0);
+    attempt < 200 && countSolid(props) < solids + (home ? 2 : building ? 1 : 0);
     attempt++
   ) {
     // Tile centres from the second tile to the second-to-last, so the edges stay walkable.
@@ -306,7 +366,7 @@ export function buildScreen(screen: Screen): Prop[] {
     });
   }
   // Flowers do not block anything, so they can go anywhere that is not already taken.
-  const flowers = home ? 4 : 2 + Math.floor(random() * 4);
+  const flowers = building ? 4 : 2 + Math.floor(random() * 4);
   for (
     let placed = 0, attempt = 0;
     placed < flowers && attempt < 100;
@@ -314,7 +374,11 @@ export function buildScreen(screen: Screen): Prop[] {
   ) {
     const x = left + 0.5 + Math.floor(random() * SCREEN_TILES);
     const y = top + 0.5 + Math.floor(random() * SCREEN_TILES);
-    if (home && Math.abs(x - HOUSE.x) < 2 && Math.abs(y - HOUSE.y) < 2)
+    if (
+      building &&
+      Math.abs(x - building.x) < 3 &&
+      Math.abs(y - building.y) < 2
+    )
       continue;
     if (props.some((prop) => Math.hypot(prop.x - x, prop.y - y) < 1)) continue;
     props.push({ kind: "flowers", x, y, footprint: null });
@@ -471,27 +535,25 @@ function slide(
 /** Timing and limits for Legendary professors appearing on the map, in seconds. */
 export const SPAWNING = {
   // The first one appears this soon after the map opens.
-  firstDelay: 3,
+  firstDelay: 1,
   // After that, a new one appears every minDelay to maxDelay seconds.
-  minDelay: 20,
-  maxDelay: 40,
+  minDelay: 5,
+  maxDelay: 12,
   // Each one leaves after this long if nobody meets them.
-  lifetime: 150,
+  lifetime: 90,
   // No more than this many at once.
-  maxActive: 3,
-  // They appear at least this far from the player, in tiles.
-  minDistance: 10,
-  // Each one rolls a level from minLevel to maxLevel, every level equally likely. The server
-  // checks the same range (WILD_LEVELS in src/server/modules/battles/domain/encounterBattle.ts).
+  maxActive: 6,
+  // They appear at least this far from the player, in tiles: close enough to turn up on
+  // the player's own screen, but never right on top of them.
+  minDistance: 5,
+  // ...and no further than this, so there is usually one roaming somewhere in sight.
+  maxDistance: 16,
+  // Preserve the fighting version's wild-level rolls.
   minLevel: 10,
   maxLevel: 100,
 };
 
-/**
- * Rolls the level of a Legendary professor appearing on the map.
- * @param random - A random number generator, such as Math.random.
- * @returns A whole level from SPAWNING.minLevel to SPAWNING.maxLevel.
- */
+/** Rolls an inclusive wild professor level, matching the server's WILD_LEVELS range. */
 export function pickSpawnLevel(random: () => number): number {
   const range = SPAWNING.maxLevel - SPAWNING.minLevel + 1;
   return SPAWNING.minLevel + Math.min(range - 1, Math.floor(random() * range));
@@ -501,7 +563,6 @@ export function pickSpawnLevel(random: () => number): number {
 export type Spawn = {
   id: number;
   professorId: string;
-  // Their level, from SPAWNING.minLevel to SPAWNING.maxLevel.
   level: number;
   x: number;
   y: number;
@@ -560,7 +621,8 @@ export function isChaser(stats: ProfessorStats | undefined): boolean {
 
 /**
  * Picks a place for a Legendary professor to appear: an open tile, away from the scenery and
- * the screen edges, at least SPAWNING.minDistance from the player, and never on the home screen.
+ * the screen edges, between SPAWNING.minDistance and SPAWNING.maxDistance from the player, and
+ * never on the home screen.
  * @param map - The map.
  * @param player - Where the player is.
  * @param random - A random number generator, such as Math.random.
@@ -587,7 +649,9 @@ export function pickSpawnPoint(
         1.5 +
         Math.floor(random() * (SCREEN_TILES - 2)),
     };
-    if (wrappedDistance(point, player) < SPAWNING.minDistance) continue;
+    const distance = wrappedDistance(point, player);
+    if (distance < SPAWNING.minDistance || distance > SPAWNING.maxDistance)
+      continue;
     // Leave room around them, and keep them out from under the trees, where they'd be hidden.
     if (isBlocked(map, point, 0.6) || isUnderCanopy(map, point)) continue;
     return point;

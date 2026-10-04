@@ -13,7 +13,7 @@ import type {
   BattleView,
   OwnedFighter,
 } from "../../features/world/battleApi";
-import type { LegendaryProfessor } from "../../features/world/Game Mechanics/game";
+import type { WildProfessor } from "../../features/world/Game Mechanics/game";
 import { professorArt } from "../../features/world/art";
 import "./BattleEncounter.css";
 import BattleStage from "../../features/battle/BattleStage";
@@ -48,7 +48,7 @@ export default function BattleEncounter({
   onLeave,
 }: {
   // The professor met on the map, with the level they rolled when they appeared.
-  professor: LegendaryProfessor & { level: number };
+  professor: WildProfessor & { level: number };
   onLeave: () => void;
 }) {
   const [battle, setBattle] = useState<BattleView | null>(null);
@@ -406,7 +406,7 @@ export default function BattleEncounter({
             <p className="eyebrow">WILD PROFESSOR BATTLE</p>
             <h2 id="battle-title">{professor.name}</h2>
             <p className="encounter-meta">
-              Legendary · Lv. {professor.level} · {professor.department}
+              {professor.rarity} · Lv. {professor.level} · {professor.department}
             </p>
           </div>
         </div>

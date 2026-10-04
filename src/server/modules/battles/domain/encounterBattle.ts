@@ -8,6 +8,11 @@ export const STUDENT_STATS = { health: 100, attack: 600, defense: 20 };
 /** Wild professors appear at these levels. The campus map rolls them (SPAWNING in world.ts). */
 export const WILD_LEVELS = { min: 10, max: 100 };
 /**
+ * The rarities of professor that roam the campus map and the school as wild professors. The map
+ * loads the same ones (loadWildProfessors in src/client/features/world/api.ts).
+ */
+export const WILD_RARITIES: readonly string[] = ["Rare", "Epic"];
+/**
  * For each level a fighter is above their opponent, their attack, defense, and speed grow by
  * this many percent: a level 30 professor against a level 10 fighter has 200% of their stats.
  */

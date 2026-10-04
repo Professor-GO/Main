@@ -5,6 +5,10 @@ import { EPIC_PITY, GACHA_CAGES, GACHA_POOL, PULL_COST, inventoryFor, levelUpPro
 import type { AppContext } from "../../../http/apiApp.ts";
 import { allowMethods, createRouter, httpError, jsonBody } from "../../../http/http.ts";
 import { checkOrigin, requireUser } from "../../accounts/http/session.ts";
+import { tokenBalance } from "../infrastructure/sqliteInventory.ts";
+
+// How many pulls the gashapon machine's "pull 10" button makes.
+const MULTI_PULL = 10;
 
 /**
  * Creates the gacha and inventory routes, mounted under /api.
@@ -26,8 +30,25 @@ export function gachaRoutes({ db, auth }: AppContext) {
     });
 
     // Spends PULL_COST tokens to pull a professor in their cage. 409 if the player has too few tokens.
+    // With `{ "count": 10 }` it makes ten pulls at once, but only if the player can afford all ten,
+    // and replies with `{ pulls, user }` instead.
     router.route("/gacha/pull").all(allowMethods("POST")).post(checkOrigin, jsonBody, async (request, response) => {
         const user = await requireUser(auth, request);
+        if (request.body.count === MULTI_PULL) {
+            if (tokenBalance(db, user.id) < PULL_COST * MULTI_PULL) throw httpError(409, `You need ${PULL_COST * MULTI_PULL} tokens for ${MULTI_PULL} pulls.`);
+            const pulls = [];
+            let balance = user.tokens;
+            for (let made = 0; made < MULTI_PULL; made++) {
+                const pull = pullGacha(db, user.id);
+                // Only possible if the tokens were spent elsewhere in the meantime; keep what was pulled.
+                if (!pull) break;
+                const { tokens, ...prize } = pull;
+                balance = tokens;
+                pulls.push(prize);
+            }
+            response.json({ pulls, user: publicUser({ ...user, tokens: balance }) });
+            return;
+        }
         const pull = pullGacha(db, user.id);
         if (!pull) throw httpError(409, `You need ${PULL_COST} tokens to recruit a professor.`);
         const { tokens, ...prize } = pull;

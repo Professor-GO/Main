@@ -7,6 +7,7 @@ import {
   resolveQuiz,
   strike,
   WILD_LEVELS,
+  WILD_RARITIES,
 } from "../domain/encounterBattle.ts";
 import {
   changeBattle,
@@ -112,7 +113,8 @@ export function battleRoutes({ db, auth }: AppContext) {
           `Choose a level from ${WILD_LEVELS.min} to ${WILD_LEVELS.max}.`,
         );
       const professor = GACHA_POOL.find(
-        (entry) => entry.id === professorId && entry.rarity === "Legendary",
+        (entry) =>
+          entry.id === professorId && WILD_RARITIES.includes(entry.rarity),
       );
       if (!professor)
         throw httpError(400, "This professor cannot appear in the overworld.");

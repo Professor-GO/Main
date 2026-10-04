@@ -45,6 +45,7 @@ const professor = {
   id: "frank-wood",
   name: "Frank Wood",
   department: "Computer Science",
+  rarity: "Epic",
   level: 37,
 };
 const base: BattleView = {
