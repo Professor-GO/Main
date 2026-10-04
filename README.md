@@ -1,6 +1,6 @@
 # Game Engine
 
-A university-themed game prototype with account access, a player lobby, coding questions that award tokens, and wild professor battles on the campus map. Recruitment, inventory, and level-up APIs exist; the lobby's recruitment/team buttons remain placeholders.
+A university-themed game prototype with account access, a player lobby, coding questions that award tokens, and wild professor battles on the campus map. Players recruit professors from a gashapon machine on the recruit page; the team button remains a placeholder.
 
 ## Run locally
 
@@ -98,6 +98,10 @@ Browser API requests are same-origin. POST bodies are JSON objects; errors use `
 | GET | `/api/gacha/pool` | Roster and pull cost |
 | POST | `/api/gacha/pull` | Spend tokens, award professor or cage, and update pity atomically. With `{ count: 10 }`, makes ten pulls if the player can afford all ten and replies `{ pulls, user }` |
 | GET | `/api/inventory` | Owned professors and cages |
+| GET | `/api/gacha/pool` | Roster with each professor's cage and base chance, the cages, and pull cost |
+| GET | `/api/gacha/pity` | The player's pity, pull cost, and guarantee size |
+| POST | `/api/gacha/pull` | Spend tokens, award a caged professor, and update pity atomically |
+| GET | `/api/inventory` | Owned professors |
 | POST | `/api/inventory/level-up` | Spend spare copies |
 | GET | `/api/question` | Player-owned question attempt, no answer or explanation |
 | POST | `/api/question/answer` | Submit `{ questionId, selectedIndex }` |
@@ -109,16 +113,22 @@ Browser API requests are same-origin. POST bodies are JSON objects; errors use `
 
 Accounts begin with 50 tokens; a pull costs 10. Professor IDs remain stable inventory keys, and duplicates add copies. Level-up retains at least one copy.
 
-### Recruitment rules merged from main
+### Recruitment rules
 
 The roster lives in `src/server/modules/recruitment/domain/professors.ts`; policy lives in `src/server/modules/recruitment/application/recruitment.ts`.
 
 - Legendary professors share a 0.08% base chance. After 50 pulls without one, the chance rises linearly to a guarantee on pull 80.
-- Epic professors share a 5% base chance. The 10th pull without an Epic guarantees an Epic unless it is Legendary; Legendary takes precedence when both guarantees are due.
-- Professors within each eligible tier are equally likely. Rare and Common roster entries cannot be pulled. The roster must contain a Legendary and an Epic; IDs, departments, ratings, stats and copy costs remain validated.
-- Other pulls award golden, iron or bronze cages in a 1:5:10 ratio. Cage counts live in `items`; player counters live in `gacha_pity`. Token debit, prize and counters are saved atomically. Tables are created if missing; existing accounts and inventory are retained.
+- Epic professors share a 5% base chance. The 10th pull without an Epic or Legendary guarantees an Epic unless it is Legendary; Legendary takes precedence when both guarantees are due. Either rarity restarts the 10-pull count.
+- Every pull is a professor. Rare and Common professors share the remaining ~95% equally. The roster must contain a Legendary, an Epic, and a Rare or Common professor; IDs, departments, ratings, stats and copy costs remain validated.
+- Each professor arrives in the cage for their rarity: golden for Legendary, iron for Epic, bronze for Rare and Common. Cages are not separate prizes; the old `items` table is left in place but unused. Player counters live in `gacha_pity`. Token debit, professor and counters are saved atomically.
 
-Pool responses include `{ cost, professors, cages }`. Pull responses are `{ kind: "professor", item, isNew, pity, user }` or `{ kind: "cage", cage, quantity, pity, user }`. Inventory returns `{ inventory, cages }`. Recruitment/team UI remain placeholders; campus encounters have a separate fight UI. New `Assets/gacha/` artwork is retained privately, not exposed by the public build allowlist.
+Pool responses include `{ cost, professors, cages }`, and each professor has a `cage`. Pity responses are `{ cost, guarantee, pity }`. Pull responses are `{ item, isNew, pity, user }`. Inventory returns `{ inventory }`.
+
+### Recruit page
+
+**Recruit a professor** in the lobby opens the gashapon (`src/client/pages/RecruitPage/`). A pull shakes the machine and tumbles the capsules in its globe while the server picks the professor. A capsule then drops out of the chute, wobbles (longer for a Legendary) and pops open to show the professor inside their cage. The capsule colour shows the rarity: yellow Legendary, pink Epic, blue Rare, green Common. A card lists their rarity, department, cage, stats and copies.
+
+The pity bar shows pulls toward the guaranteed Epic or Legendary and turns gold when the next pull is guaranteed. It and the token balance update only once the capsule opens, so the bar never gives the result away. **Skip** jumps to the result, and players who prefer reduced motion see the result straight away. With too few tokens, the page links to the pop quiz. The capsule physics are in `src/client/features/recruitment/capsules.ts`. The page imports only the pictures it uses from `Assets/gacha/`, and only those are published.
 
 ### Campus map
 
@@ -141,7 +151,17 @@ Map mechanics live in `src/client/features/world/Game Mechanics/`: the campus ru
 - This first encounter fight uses a student with 100 HP, 600 attack, and 20 defense as temporary combat defaults. Professors use their roster stats. A turn deals `floor(attack / defense)` damage in each direction; health cannot go below zero. Team selection and level-based stats are future work.
 - Each battle rolls a whole-HP trigger inside **2/3–3/4** of maximum professor health, another inside **1/3–3/5**, and a final trigger at **10%** (whole HP rounded down). Each event fires once, even if healing raises HP above an earlier trigger.
 - A strike pauses at a crossed checkpoint. Its remaining damage resumes after the quiz; a large or lethal strike can therefore interrupt for several quizzes before finishing. The professor counterattacks once when that strike finishes, unless defeated.
-- Each popup reuses the Gemini coding-question generator and local fallback. Combat pauses while the question is generated. The server starts a **10-second** deadline after generation. An incorrect answer or timeout heals `floor((maxHP - currentHP) * percent / 100)`, where `percent` is a uniformly random integer from **50 through 80**. Correct answers apply no healing penalty. These battle questions do not award practice tokens.
+- Each popup reuses the Gemini coding-question generator and local fallback. Combat pauses while the question is generated. The server starts a **10-second** deadline after generation. An incorrect answer or timeout heals the professor by `floor((maxHP - currentHP) * percent / 100)`, where `percent` is a uniformly random integer from **50 through 80**, and costs the player `floor(currentPlayerHP * 80 / 100)` health. Both penalties apply before the interrupted strike resumes; the usual professor counterattack can cause defeat afterward. Correct answers apply neither penalty. These battle questions do not award practice tokens.
 - Battle state, the private answer, deadlines, and processed action IDs persist in SQLite. Answers are tied to the player's current battle question. Late answers count as wrong; explicit retries cannot apply damage or healing twice. Network failures show Retry; stale versions require Refresh battle. The browser map and encounter identity still reset on reload, so there is no resume-battle UI or reward-bearing encounter validation yet.
 
 Question correctness and rewards remain server-owned. A correct first answer awards one token atomically with the recorded choice. Same-choice retries are idempotent; changed answers are rejected. A lost response enables only explicit same-choice retry in the UI, not automatic resubmission. React renders generated/player content as text.
+
+### Animated encounter fights
+
+Campus fights show two articulated SVG professors, adapted from `Assets/stickman-react.zip`, with the transparent head cutouts in `Assets/battle/heads/`. `src/client/features/battle/` contains the reusable rig, typed GSAP controller, fighter artwork mapping, and the battle arena.
+
+Before the first attack, **Battle as** lets the player choose a professor from their authenticated inventory. Empty collections use a student practice fighter. Professor selection currently changes the fighter's appearance; existing student practice stats and server combat rules are retained. It does not implement team combat or level-based battle stats.
+
+Confirmed battle results trigger player lunges/punches, enemy hit reactions and counterattacks, quiz healing, victory waves, defeat poses, and fleeing. Loading a question or retrying an already processed command cannot replay a hit. The server remains the only authority for health, damage, question deadlines and healing. Combat controls wait for attack animations; quiz answers and their ten-second countdown remain available during visual transitions. Reduced-motion preferences suppress continuous movement while retaining the outcome poses and feedback.
+
+The arena scales for desktop/mobile and compacts while a timed question is open. Timelines and preference listeners are cleaned up on unmount. The original demo's fixed 25-HP damage and automatic enemy respawn are not used. Only explicitly imported artwork is bundled; the ZIP and demo files stay private.

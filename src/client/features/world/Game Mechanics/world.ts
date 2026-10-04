@@ -1,6 +1,6 @@
 /**
  * Rules for the open-world campus map: its layout, walking, wrapping, collisions, and where
- * Legendary professors appear. Nothing here touches the DOM, so it runs (and is tested) in Node.
+ * Legendary professors appear and how they roam. Nothing here touches the DOM, so it runs (and is tested) in Node.
  *
  * The map is seen from straight above. Coordinates are in tiles: x grows to the right and y
  * grows down the screen. The world is WORLD_SCREENS × WORLD_SCREENS screens, and each screen
@@ -495,10 +495,29 @@ export function walk(
 ): Point {
   const vector = DIRECTION_VECTORS[direction];
   const distance = WALK_SPEED * seconds;
-  const dx = vector.x * distance;
-  const dy = vector.y * distance;
-  // Try the full step, then just its x part, then just its y part, so the player slides
-  // along a tree instead of stopping dead when walking diagonally into it.
+  return slide(
+    from,
+    vector.x * distance,
+    vector.y * distance,
+    (next) => !isBlocked(map, next),
+  );
+}
+
+/**
+ * Takes one step, trying the full step, then just its x part, then just its y part, so whoever
+ * is moving slides along a tree instead of stopping dead when they meet it at an angle.
+ * @param from - Where they are.
+ * @param dx - How far to move across, in tiles.
+ * @param dy - How far to move down, in tiles.
+ * @param canStand - Whether they may stand at a point (already wrapped onto the world).
+ * @returns Where they end up. It is `from` if every way forward is blocked.
+ */
+function slide(
+  from: Point,
+  dx: number,
+  dy: number,
+  canStand: (point: Point) => boolean,
+): Point {
   for (const [stepX, stepY] of [
     [dx, dy],
     [dx, 0],
@@ -506,7 +525,7 @@ export function walk(
   ]) {
     if (stepX === 0 && stepY === 0) continue;
     const next = { x: wrap(from.x + stepX), y: wrap(from.y + stepY) };
-    if (!isBlocked(map, next)) return next;
+    if (canStand(next)) return next;
   }
   return from;
 }
@@ -531,7 +550,7 @@ export const SPAWNING = {
   maxDistance: 16,
 };
 
-/** A Legendary professor waiting somewhere on the map. */
+/** A Legendary professor roaming somewhere on the map. */
 export type Spawn = {
   id: number;
   professorId: string;
@@ -539,7 +558,56 @@ export type Spawn = {
   y: number;
   // When they leave, in seconds on the game clock.
   leavesAt: number;
+  // Strong enough to chase the player (see isChaser).
+  chaser: boolean;
+  // Chasing the player right now.
+  chasing: boolean;
+  // The way they are wandering: one tile long, or zero while they stand still.
+  heading: Point;
+  // When they next choose a new way to wander, in seconds on the game clock.
+  turnAt: number;
 };
+
+/** A professor's stats, as the gacha pool lists them. */
+export type ProfessorStats = {
+  health: number;
+  attack: number;
+  defense: number;
+  speed: number;
+};
+
+/** How Legendary professors move around the map. Speeds are in tiles a second. */
+export const ROAMING = {
+  // Wandering professors stroll at this speed, well below the player's WALK_SPEED.
+  wanderSpeed: 1.1,
+  // They keep one heading (or stand still) for minLeg to maxLeg seconds, then choose again.
+  minLeg: 1.5,
+  maxLeg: 4,
+  // The chance that a new choice is to stand still for a while.
+  pauseChance: 0.25,
+  // Professors whose health + attack + defense + speed reaches this chase the player.
+  // A placeholder, like the roster's stats: with today's roster only Frank Wood chases.
+  chaserPower: 240,
+  // A chaser notices a player this close, in tiles...
+  noticeRadius: 7,
+  // ...and gives up once the player is this far away, so a short escape is not enough.
+  giveUpRadius: 10,
+  // Chasers run a little slower than the player walks, so getting away is possible.
+  chaseSpeed: 2.7,
+};
+/** A roaming professor's size for collisions: the radius of the circle they stand on, in tiles. */
+export const SPAWN_RADIUS = 0.35;
+
+/**
+ * Decides whether a professor is strong enough to chase the player.
+ * @param stats - Their stats, or undefined if they are not known.
+ * @returns True if their stats add up to at least ROAMING.chaserPower.
+ */
+export function isChaser(stats: ProfessorStats | undefined): boolean {
+  if (!stats) return false;
+  const power = stats.health + stats.attack + stats.defense + stats.speed;
+  return power >= ROAMING.chaserPower;
+}
 
 /**
  * Picks a place for a Legendary professor to appear: an open tile, away from the scenery and
@@ -579,6 +647,71 @@ export function pickSpawnPoint(
     return point;
   }
   return null;
+}
+
+/**
+ * Moves a Legendary professor for one frame. A chaser who notices the player runs straight at
+ * them, stepping sideways around anything in the way; everyone else wanders, turning now and
+ * then and whenever they bump into something. Nobody enters the home screen, so home is safe,
+ * and a chaser stops chasing a player who is at home.
+ * @param map - The map.
+ * @param spawn - The professor.
+ * @param player - Where the player is.
+ * @param time - The game clock, in seconds.
+ * @param seconds - How long the frame lasts.
+ * @param random - A random number generator, such as Math.random.
+ * @returns The professor after the frame.
+ */
+export function moveSpawn(
+  map: WorldMap,
+  spawn: Spawn,
+  player: Point,
+  time: number,
+  seconds: number,
+  random: () => number,
+): Spawn {
+  const canStand = (point: Point) =>
+    !isHome(screenOf(point)) && !isBlocked(map, point, SPAWN_RADIUS);
+  const here: Point = { x: spawn.x, y: spawn.y };
+  const distance = wrappedDistance(here, player);
+  const range = spawn.chasing ? ROAMING.giveUpRadius : ROAMING.noticeRadius;
+  if (spawn.chaser && distance < range && !isHome(screenOf(player))) {
+    const offset = wrappedOffset(here, player);
+    // Never overshoot the player.
+    const stride = Math.min(ROAMING.chaseSpeed * seconds, distance);
+    const ux = distance ? offset.x / distance : 0;
+    const uy = distance ? offset.y / distance : 0;
+    // If the way is blocked, turn further and further, preferring the same side for this
+    // professor so they work their way round a tree instead of dithering in front of it.
+    const side = spawn.id % 2 ? 1 : -1;
+    for (const degrees of [0, 30, 60, 90, 120, -30, -60, -90]) {
+      const angle = (degrees * side * Math.PI) / 180;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const next = {
+        x: wrap(here.x + (ux * cos - uy * sin) * stride),
+        y: wrap(here.y + (ux * sin + uy * cos) * stride),
+      };
+      if (canStand(next)) return { ...spawn, ...next, chasing: true };
+    }
+    return { ...spawn, chasing: true };
+  }
+
+  let { heading, turnAt } = spawn;
+  if (time >= turnAt) {
+    turnAt =
+      time + ROAMING.minLeg + random() * (ROAMING.maxLeg - ROAMING.minLeg);
+    const angle = random() * Math.PI * 2;
+    heading =
+      random() < ROAMING.pauseChance
+        ? { x: 0, y: 0 }
+        : { x: Math.cos(angle), y: Math.sin(angle) };
+  }
+  const stride = ROAMING.wanderSpeed * seconds;
+  const next = slide(here, heading.x * stride, heading.y * stride, canStand);
+  // Walked into something: choose a new way on the next frame.
+  if (next === here && (heading.x || heading.y)) turnAt = time;
+  return { ...spawn, ...next, heading, turnAt, chasing: false };
 }
 
 /**

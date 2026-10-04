@@ -8,6 +8,7 @@ type LobbyPageProps = {
   player: Player;
   focus: boolean;
   onQuestion: () => void;
+  onRecruit: () => void;
   onExplore: () => void;
   onLogout: () => void;
 };
@@ -15,11 +16,11 @@ export default function LobbyPage({
   player,
   focus,
   onQuestion,
+  onRecruit,
   onExplore,
   onLogout,
 }: LobbyPageProps) {
   const title = useRef<HTMLHeadingElement>(null);
-  const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   useEffect(() => {
@@ -101,11 +102,7 @@ export default function LobbyPage({
           className="primary-button"
           id="recruit-button"
           type="button"
-          onClick={() =>
-            setStatus(
-              "The recruitment hall is still being built. Check back soon!",
-            )
-          }
+          onClick={onRecruit}
         >
           <span>Recruit a professor</span>
           <span aria-hidden="true">✦</span>
@@ -129,12 +126,9 @@ export default function LobbyPage({
           <span aria-hidden="true">?</span>
         </button>
       </div>
-      <p className="session-status" id="lobby-status" role="status">
-        {status}
-      </p>
       <p className="lobby-note">
-        Your account is ready. Explore the campus to find Legendary professors —
-        recruiting and battles are still being built.
+        Your account is ready. Recruit professors with your tokens, or explore
+        the campus to find Legendary ones.
       </p>
       <p
         id="lobby-message"

@@ -36,6 +36,20 @@ function count(value: unknown): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0)
     throw new ApiError(INVALID);
   return value as number;
+import type { LegendaryProfessor } from "./Game Mechanics/game";
+import type { ProfessorStats } from "./Game Mechanics/world";
+
+/**
+ * Reads a professor's stats from the pool, if they are all there.
+ * @param value - The professor's `stats` field.
+ * @returns The stats, or undefined if any is missing or not a number.
+ */
+function statsFrom(value: unknown): ProfessorStats | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { health, attack, defense, speed } = value as Record<string, unknown>;
+  return [health, attack, defense, speed].every(Number.isFinite)
+    ? ({ health, attack, defense, speed } as ProfessorStats)
+    : undefined;
 }
 
 /**
@@ -60,6 +74,7 @@ export async function loadWildProfessors(): Promise<WildProfessor[]> {
             name: professor.name,
             department: professor.department,
             rarity: professor.rarity,
+            stats: statsFrom(professor.stats),
           },
         ]
       : [];

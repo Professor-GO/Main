@@ -367,6 +367,8 @@ function drawHouse(
 /**
  * Marks where a wild professor stands: a pulsing pool of light on the ground and their name
  * above their head. The professor themselves is an animated stickman drawn over the canvas.
+ * Draws a Legendary professor: a glowing golden token with their face, floating gently above a
+ * pool of light, with their name above. One chasing the player glows red instead.
  * @param context - The canvas.
  * @param spawn - The professor.
  * @param x - Their position on the screen, in tiles.
@@ -390,8 +392,9 @@ function drawSpawn(
     base.y,
     30,
   );
-  glow.addColorStop(0, `rgb(255 214 77 / ${0.55 + pulse * 0.3})`);
-  glow.addColorStop(1, "rgb(255 214 77 / 0)");
+  const glowColour = spawn.chasing ? "235 64 52" : "255 214 77";
+  glow.addColorStop(0, `rgb(${glowColour} / ${0.55 + pulse * 0.3})`);
+  glow.addColorStop(1, `rgb(${glowColour} / 0)`);
   context.fillStyle = glow;
   context.beginPath();
   context.ellipse(base.x, base.y, 30, 13, 0, 0, Math.PI * 2);
@@ -399,6 +402,40 @@ function drawSpawn(
 
   drawNameTag(context, base, `★ ${spawn.name}`);
 }
+  const radius = 22;
+  const centre = {
+    x: base.x,
+    y: base.y - 38 - Math.sin(time * 2.4 + spawn.id) * 4,
+  };
+  const url = professorArt(spawn.professorId);
+  const image = url ? images(url) : undefined;
+  context.save();
+  context.beginPath();
+  context.arc(centre.x, centre.y, radius, 0, Math.PI * 2);
+  context.fillStyle = "#fff6d6";
+  context.fill();
+  if (image) {
+    // The pictures are portraits with the face near the top, so crop to the face.
+    context.clip();
+    const size = image.naturalWidth * 0.56;
+    context.drawImage(
+      image,
+      image.naturalWidth * 0.22,
+      image.naturalHeight * 0.02,
+      size,
+      size,
+      centre.x - radius,
+      centre.y - radius,
+      radius * 2,
+      radius * 2,
+    );
+  }
+  context.restore();
+  context.strokeStyle = spawn.chasing ? "#d62b1f" : "#e0a800";
+  context.lineWidth = 3;
+  context.beginPath();
+  context.arc(centre.x, centre.y, radius, 0, Math.PI * 2);
+  context.stroke();
 
 /**
  * Writes a name on a dark tag above where a stickman's head is.
@@ -417,6 +454,20 @@ function drawNameTag(
   const width = context.measureText(label).width + 14;
   const tagY = base.y - ACTOR_HEIGHT - 16;
   context.fillStyle = "rgb(37 75 63 / 0.92)";
+  for (const offset of [0, Math.PI]) {
+    const angle = time * 1.8 + offset;
+    context.fillText(
+      "✦",
+      centre.x + Math.cos(angle) * 31,
+      centre.y + Math.sin(angle) * 12,
+    );
+  }
+
+  // Their name on a dark tag above the token.
+  const label = spawn.chasing ? `! ${spawn.name} !` : `★ ${spawn.name}`;
+  context.font = "bold 11px 'Segoe UI', Arial, sans-serif";
+  const width = context.measureText(label).width + 14;
+  context.fillStyle = spawn.chasing ? "rgb(122 22 16 / 0.92)" : "rgb(37 75 63 / 0.92)";
   context.beginPath();
   context.roundRect(base.x - width / 2, tagY - 9, width, 18, 9);
   context.fill();

@@ -27,8 +27,11 @@ export type CombatState = {
   maxHealth: number;
   health: number;
   playerHealth: number;
+  playerMaxHealth: number;
   attack: number;
   defense: number;
+  playerAttack: number;
+  playerDefense: number;
   checkpoints: number[];
   eventsTriggered: number;
   pendingEvent: number | null;
@@ -44,6 +47,7 @@ export function createCombat(
   stats: { health: number; attack: number; defense: number },
   random = Math.random,
   fighter: FighterStats = STUDENT_STATS,
+  playerStats = STUDENT_STATS,
 ): CombatState {
   // Whole HP checkpoints stay inside each range even when max HP is not divisible by the fractions.
   const checkpoint = (lower: number, upper: number) => {
@@ -56,8 +60,12 @@ export function createCombat(
     health: stats.health,
     playerHealth: fighter.health,
     fighter,
+    playerHealth: playerStats.health,
+    playerMaxHealth: playerStats.health,
     attack: stats.attack,
     defense: stats.defense,
+    playerAttack: playerStats.attack,
+    playerDefense: playerStats.defense,
     checkpoints: [
       checkpoint(2 / 3, 3 / 4),
       checkpoint(1 / 3, 3 / 5),
@@ -90,6 +98,7 @@ function applyDamage(state: CombatState, damage: number): void {
       0,
       state.playerHealth -
         Math.floor(state.attack / (state.fighter ?? STUDENT_STATS).defense),
+      state.playerHealth - Math.floor(state.attack / state.playerDefense),
     );
     state.status = state.playerHealth === 0 ? "lost" : "fighting";
   }
@@ -104,24 +113,33 @@ export function strike(state: CombatState): CombatState {
     next,
     Math.floor((state.fighter ?? STUDENT_STATS).attack / state.defense),
   );
+  applyDamage(next, Math.floor(state.playerAttack / state.defense));
   return next;
 }
 
-/** Heals floor(lost HP * random integer percentage from 50 to 80) on a wrong answer. */
+/** Wrong answers lightly heal the professor and chip away at the player's HP before combat resumes. */
 export function resolveQuiz(
   state: CombatState,
   correct: boolean,
   random = Math.random,
-): { state: CombatState; healed: number; healingPercent: number } {
+): {
+  state: CombatState;
+  healed: number;
+  healingPercent: number;
+  playerDamage: number;
+} {
   if (state.status !== "question")
     throw new Error("There is no question to answer.");
   const next = structuredClone(state);
-  const healingPercent = correct ? 0 : 50 + Math.floor(random() * 31);
-  const healed = Math.floor(
-    ((next.maxHealth - next.health) * healingPercent) / 100,
-  );
+  const healingPercent = correct ? 0 : 10 + Math.floor(random() * 11);
+  const healed = Math.floor((next.maxHealth * healingPercent) / 100);
   next.health = Math.min(next.maxHealth, next.health + healed);
+  const playerDamagePercent = correct ? 0 : 5 + Math.floor(random() * 8);
+  const playerDamage = correct
+    ? 0
+    : Math.min(Math.floor((next.playerHealth * playerDamagePercent) / 100), 15);
+  next.playerHealth = Math.max(0, next.playerHealth - playerDamage);
   next.pendingEvent = null;
   applyDamage(next, next.remainingDamage);
-  return { state: next, healed, healingPercent };
+  return { state: next, healed, healingPercent, playerDamage };
 }

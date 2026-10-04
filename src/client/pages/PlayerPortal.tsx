@@ -6,6 +6,7 @@ import type { Player } from "../features/accounts/api";
 import AuthPage from "./AuthPage/AuthPage";
 import LobbyPage from "./LobbyPage/LobbyPage";
 import QuestionPage from "./QuestionPage/QuestionPage";
+import RecruitPage from "./RecruitPage/RecruitPage";
 import WorldPage from "./WorldPage/WorldPage";
 
 type Session =
@@ -15,7 +16,9 @@ type Session =
 /** Keeps session restoration alive across StrictMode effect replay, without duplicate requests. */
 export default function PlayerPortal() {
   const [session, setSession] = useState<Session>({ kind: "restoring" });
-  const [page, setPage] = useState<"lobby" | "question" | "world">("lobby");
+  const [page, setPage] = useState<
+    "lobby" | "question" | "world" | "recruit"
+  >("lobby");
   const restoration = useRef<Promise<Player> | null>(null);
   useEffect(() => {
     let active = true;
@@ -55,6 +58,24 @@ export default function PlayerPortal() {
         }}
       />
     );
+  const updateTokens = (tokens: number) =>
+    setSession((current) =>
+      current.kind === "authenticated"
+        ? { ...current, player: { ...current.player, tokens } }
+        : current,
+    );
+  if (page === "recruit")
+    return (
+      <RecruitPage
+        tokens={session.player.tokens}
+        onBack={() => {
+          setPage("lobby");
+          setSession({ ...session, focus: true });
+        }}
+        onTokens={updateTokens}
+        onQuestion={() => setPage("question")}
+      />
+    );
   if (page === "world")
     return (
       <WorldPage
@@ -81,19 +102,14 @@ export default function PlayerPortal() {
         setPage("lobby");
         setSession({ ...session, focus: true });
       }}
-      onTokens={(tokens) =>
-        setSession((current) =>
-          current.kind === "authenticated"
-            ? { ...current, player: { ...current.player, tokens } }
-            : current,
-        )
-      }
+      onTokens={updateTokens}
     />
   ) : (
     <LobbyPage
       player={session.player}
       focus={session.focus}
       onQuestion={() => setPage("question")}
+      onRecruit={() => setPage("recruit")}
       onExplore={() => setPage("world")}
       onLogout={() =>
         setSession({

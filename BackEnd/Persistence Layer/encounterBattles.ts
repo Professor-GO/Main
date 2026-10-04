@@ -21,6 +21,8 @@ export type Battle = {
     explanation: string;
     healed: number;
     healingPercent: number;
+    /** Absent on battle results persisted before the player-health penalty was added. */
+    playerDamage?: number;
   } | null;
 };
 
@@ -163,6 +165,7 @@ export function publicBattle(battle: Battle) {
     caught: battle.caught ?? false,
     playerHealth: combat.playerHealth,
     playerMaxHealth: combat.fighter?.health ?? 100,
+    playerMaxHealth: combat.playerMaxHealth,
     status: combat.status,
     eventNumber: combat.pendingEvent === null ? null : combat.pendingEvent + 1,
     eventsTriggered: combat.eventsTriggered,

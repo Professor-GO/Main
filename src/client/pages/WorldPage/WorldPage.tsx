@@ -96,6 +96,7 @@ export default function WorldPage({ onBack, onTokens }: WorldPageProps) {
   const [hud, setHud] = useState<WorldHud>({
     screen: HOME_SCREEN,
     spawnScreens: [],
+    chasedBy: null,
   });
   const [encounter, setEncounter] = useState<WildProfessor | null>(null);
   const [fighting, setFighting] = useState(false);
@@ -414,6 +415,10 @@ export default function WorldPage({ onBack, onTokens }: WorldPageProps) {
             <p className="world-status" role="status">
               {roaming
                 ? `${roaming} wild ${roaming === 1 ? "professor is" : "professors are"} roaming: ${hud.spawnScreens.map(screenName).join(", ")}.`
+              {hud.chasedBy
+                ? `${hud.chasedBy} is chasing you! Outrun them or head home, where you're safe.`
+                : hud.spawnScreens.length
+                ? `${hud.spawnScreens.length} Legendary ${hud.spawnScreens.length === 1 ? "professor is" : "professors are"} roaming: ${hud.spawnScreens.map(screenName).join(", ")}.`
                 : professors === null
                   ? "Looking for wild professors…"
                   : notice || "No wild professors right now. Keep exploring!"}

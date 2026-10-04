@@ -1,0 +1,61 @@
+.battle-stage {
+  margin: 16px 0;
+  overflow: hidden;
+  border: 1px solid #294536;
+  border-radius: 10px;
+  background: #193b42;
+}
+.battle-fighter-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px 0;
+  color: #fff5d8;
+  font-weight: 750;
+  font-size: 14px;
+}
+.battle-fighter-labels > span {
+  max-width: 48%;
+}
+.battle-fighter-labels > span:last-child {
+  text-align: right;
+}
+.battle-fighter-labels small {
+  display: block;
+  color: #b4cf9c;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  margin-bottom: 4px;
+}
+.battle-arena {
+  display: block;
+  width: 100%;
+  max-height: 270px;
+}
+.battle-stage figcaption {
+  padding: 8px 12px;
+  background: #132e2f;
+  color: #d2e5bb;
+  font-size: 11px;
+  text-align: center;
+}
+.battle-stage.is-question .battle-arena {
+  max-height: 155px;
+}
+.battle-stage [data-motion="heal"] {
+  filter: drop-shadow(0 0 6px #c6f78b);
+}
+@media (max-width: 560px) {
+  .battle-fighter-labels {
+    padding: 10px 12px 0;
+    font-size: 12px;
+  }
+  .battle-stage.is-question .battle-arena {
+    max-height: 105px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .battle-stage [data-motion="heal"] {
+    filter: none;
+  }
+}

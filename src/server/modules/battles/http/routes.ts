@@ -33,12 +33,13 @@ import { catchWithCage } from "../../recruitment/infrastructure/sqliteInventory.
 import { professorFighter } from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
 import { createCodingQuestion } from "../../questions/infrastructure/gemini.ts";
 import type { Battle } from "../../../../../BackEnd/Persistence Layer/encounterBattles.ts";
+import { STUDENT_STATS } from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
 
 const uuid = (value: unknown): value is string =>
   typeof value === "string" &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
 
-/** Resolves a private question, including the server-enforced ten-second deadline. */
+/** Resolves a private question, including the server-enforced 60-second deadline. */
 function answerBattle(battle: Battle, selectedIndex: number | null): Battle {
   if (battle.combat.status !== "question" || !battle.quiz)
     throw httpError(409, "There is no question to answer.");
@@ -46,7 +47,10 @@ function answerBattle(battle: Battle, selectedIndex: number | null): Battle {
   if (selectedIndex === null && !timedOut)
     throw httpError(409, "There is still time to answer.");
   const correct = !timedOut && selectedIndex === battle.quiz.answerIndex;
-  const { state, healed, healingPercent } = resolveQuiz(battle.combat, correct);
+  const { state, healed, healingPercent, playerDamage } = resolveQuiz(
+    battle.combat,
+    correct,
+  );
   return {
     ...battle,
     combat: state,
@@ -58,6 +62,7 @@ function answerBattle(battle: Battle, selectedIndex: number | null): Battle {
       explanation: battle.quiz.explanation,
       healed,
       healingPercent,
+      playerDamage,
     },
   };
 }
@@ -113,6 +118,7 @@ export function battleRoutes({ db, auth }: AppContext) {
         if (!owned) throw httpError(404, "You don't have that professor yet.");
         fighter = professorFighter(owned.professor.stats, owned.level);
       }
+      const playerStats = STUDENT_STATS;
       response.json(
         publicBattle(
           saveBattle(db, user.id, {
@@ -122,6 +128,7 @@ export function battleRoutes({ db, auth }: AppContext) {
             fighterId: fighter ? fighterId : null,
             version: 0,
             combat: createCombat(professor.stats, Math.random, fighter),
+            combat: createCombat(professor.stats, undefined, playerStats),
             quiz: null,
             feedback: null,
           }),
@@ -155,7 +162,7 @@ export function battleRoutes({ db, auth }: AppContext) {
             installQuiz(db, user.id, battle, {
               ...question,
               id: randomUUID(),
-              expiresAt: Date.now() + 10_000,
+              expiresAt: Date.now() + 30_000,
             });
           })();
           generating.set(key, pending);
