@@ -50,7 +50,7 @@ Deactivating an account revokes its sessions. Inactive users cannot sign in; rea
 
 ## Professor gacha
 
-The recruitable professors are listed in [`BackEnd/Professor Gacha System/Professor Pool/professors.ts`](BackEnd/Professor%20Gacha%20System/Professor%20Pool/professors.ts). Each entry has an `id`, `name`, `image` path, `avgRating` (1–5), `department` (the professor's element), and `stats` (`health`, `attack`, `defense`, `speed`). The current entries are fictional placeholders, and their image files have not been added yet.
+The recruitable professors are listed in [`BackEnd/Professor Gacha System/Professor Pool/professors.ts`](BackEnd/Professor%20Gacha%20System/Professor%20Pool/professors.ts). Each entry has an `id`, `name`, `image` path, `avgRating` (1–5), `department` (the professor's element), and `stats` (`health`, `attack`, `defense`, `speed`). The current names and images match the folders in `Assets/characters`; their ratings, departments, and stats are still placeholders, and the server does not serve the image files yet.
 
 [`BackEnd/Professor Gacha System/gacha.ts`](BackEnd/Professor%20Gacha%20System/gacha.ts) calculates the rest, so they never need to be entered by hand:
 

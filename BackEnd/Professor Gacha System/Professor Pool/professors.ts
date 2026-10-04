@@ -4,7 +4,8 @@
 // from avgRating in ../gacha.ts, so they never need to be entered by hand:
 // the higher a professor's rating, the harder they are to pull.
 //
-// The entries below are fictional placeholders until the real roster is chosen.
+// The names and images match the folders in Assets/characters. The ratings,
+// departments, and stats are still placeholders until the real values are chosen.
 
 // Departments act as the professors' elements in battle.
 export const DEPARTMENTS = [
@@ -30,7 +31,7 @@ export type ProfessorStats = {
 export type ProfessorEntry = {
     id: string; // Unique identifier for the professor. This is used to reference the professor in code and should not be changed once players have recruited them.
     name: string; // Full name of the professor. This is displayed to players and can be changed if needed.
-    image: string; // Website path to the professor's picture. The image files have not been added yet
+    image: string; // Path to the professor's front-view picture in Assets/characters. The server does not serve these files yet.
     avgRating: number; // Average student rating from 1 to 5.
     department: Department; // The department the professor belongs to. This is used for battle mechanics like element in pokemon.
     stats: ProfessorStats; // The stats of the professor, like health defence speed.
@@ -38,67 +39,59 @@ export type ProfessorEntry = {
 
 export const PROFESSOR_POOL: readonly ProfessorEntry[] = [
     {
-        id: "dr-quark",
-        name: "Dr. Quark",
-        image: "/professors/dr-quark.png",
+        id: "frank-wood",
+        name: "Frank Wood",
+        image: "/Assets/characters/frank_wood/frank_wood_front.png",
         avgRating: 4.8,
         department: "Physics",
         stats: { health: 95, attack: 90, defense: 80, speed: 75 },
     },
     {
-        id: "prof-byte",
-        name: "Prof. Byte",
-        image: "/professors/prof-byte.png",
+        id: "shervin-jannesar",
+        name: "Shervin Jannesar",
+        image: "/Assets/characters/shervin_jannesar/shervin_jannesar_front.png",
         avgRating: 4.6,
         department: "Computer Science",
         stats: { health: 90, attack: 95, defense: 60, speed: 85 },
     },
     {
-        id: "dr-vector",
-        name: "Dr. Vector",
-        image: "/professors/dr-vector.png",
+        id: "tor-aamodt",
+        name: "Tor Aamodt",
+        image: "/Assets/characters/tor_aamodt/tor_aamodt_front.png",
         avgRating: 4.2,
         department: "Mathematics",
         stats: { health: 85, attack: 80, defense: 75, speed: 70 },
     },
     {
-        id: "prof-chronicle",
-        name: "Prof. Chronicle",
-        image: "/professors/prof-chronicle.png",
+        id: "craig-scratchley",
+        name: "Craig Scratchley",
+        image: "/Assets/characters/craig_scratchley/craig_scratchley_front.png",
         avgRating: 3.9,
         department: "History",
         stats: { health: 70, attack: 60, defense: 75, speed: 55 },
     },
     {
-        id: "prof-helix",
-        name: "Prof. Helix",
-        image: "/professors/prof-helix.png",
+        id: "michael-seica",
+        name: "Michael Seica",
+        image: "/Assets/characters/michael_seica/michael_seica_front.png",
         avgRating: 3.7,
         department: "Biology",
         stats: { health: 80, attack: 65, defense: 70, speed: 60 },
     },
     {
-        id: "dr-catalyst",
-        name: "Dr. Catalyst",
-        image: "/professors/dr-catalyst.png",
+        id: "chao-liu",
+        name: "Chao Liu",
+        image: "/Assets/characters/chao_liu/chao_liu_front.png",
         avgRating: 3.3,
         department: "Chemistry",
         stats: { health: 70, attack: 75, defense: 55, speed: 65 },
     },
     {
-        id: "prof-sonnet",
-        name: "Prof. Sonnet",
-        image: "/professors/prof-sonnet.png",
+        id: "guy-lumieux",
+        name: "Guy Lumieux",
+        image: "/Assets/characters/guy_lumieux/guy_lumieux_front.png",
         avgRating: 2.9,
         department: "English",
         stats: { health: 65, attack: 55, defense: 60, speed: 70 },
-    },
-    {
-        id: "dr-ledger",
-        name: "Dr. Ledger",
-        image: "/professors/dr-ledger.png",
-        avgRating: 2.4,
-        department: "Economics",
-        stats: { health: 75, attack: 50, defense: 65, speed: 45 },
     },
 ];
