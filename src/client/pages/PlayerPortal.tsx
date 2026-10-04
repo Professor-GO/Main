@@ -6,6 +6,7 @@ import type { Player } from "../features/accounts/api";
 import AuthPage from "./AuthPage/AuthPage";
 import LobbyPage from "./LobbyPage/LobbyPage";
 import QuestionPage from "./QuestionPage/QuestionPage";
+import WorldPage from "./WorldPage/WorldPage";
 
 type Session =
   | { kind: "restoring" }
@@ -14,7 +15,7 @@ type Session =
 /** Keeps session restoration alive across StrictMode effect replay, without duplicate requests. */
 export default function PlayerPortal() {
   const [session, setSession] = useState<Session>({ kind: "restoring" });
-  const [page, setPage] = useState<"lobby" | "question">("lobby");
+  const [page, setPage] = useState<"lobby" | "question" | "world">("lobby");
   const restoration = useRef<Promise<Player> | null>(null);
   useEffect(() => {
     let active = true;
@@ -54,6 +55,15 @@ export default function PlayerPortal() {
         }}
       />
     );
+  if (page === "world")
+    return (
+      <WorldPage
+        onBack={() => {
+          setPage("lobby");
+          setSession({ ...session, focus: true });
+        }}
+      />
+    );
   return page === "question" ? (
     <QuestionPage
       onBack={() => {
@@ -73,6 +83,7 @@ export default function PlayerPortal() {
       player={session.player}
       focus={session.focus}
       onQuestion={() => setPage("question")}
+      onExplore={() => setPage("world")}
       onLogout={() =>
         setSession({
           kind: "anonymous",

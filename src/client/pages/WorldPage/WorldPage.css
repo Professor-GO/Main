@@ -1,0 +1,234 @@
+/* The map needs the whole width, so the concept-art column steps aside while it is open. */
+.main-grid:has(#world-view) {
+  grid-template-columns: 1fr;
+}
+.main-grid:has(#world-view) .showcase {
+  display: none;
+}
+.main-grid:has(#world-view) .auth-section {
+  padding: 40px 56px 48px;
+  align-self: start;
+}
+#world-title:focus {
+  outline: none;
+}
+#world-view h1 {
+  margin-bottom: 22px;
+}
+.world-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 24px;
+  align-items: start;
+}
+.world-stage {
+  position: relative;
+  border: 1px solid #cbd7ba;
+  border-radius: 10px;
+  overflow: hidden;
+  background-color: #e3ecd6;
+  background-image:
+    linear-gradient(#37503a08 1px, transparent 1px),
+    linear-gradient(90deg, #37503a08 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+.world-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 960 / 560;
+}
+.world-canvas:focus-visible {
+  outline: 3px solid #598147;
+  outline-offset: -3px;
+}
+.encounter-card {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  width: min(460px, calc(100% - 32px));
+  padding: 16px 18px;
+  border: 1.5px solid #294536;
+  border-left: 5px solid #d9a400;
+  border-radius: 10px;
+  background: #fbf5dc;
+  box-shadow: 4px 5px 0 #294536;
+  animation: encounter-in 0.35s cubic-bezier(0.3, 0.7, 0.4, 1.2);
+}
+@keyframes encounter-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 18px) scale(0.96);
+  }
+}
+.encounter-portrait {
+  flex: none;
+  width: 92px;
+  height: 92px;
+  border: 3px solid #e0a800;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: 50% 4%;
+  background: #fff6d6;
+}
+.encounter-card .eyebrow {
+  font-size: 8px;
+  color: #8a6a00;
+}
+.encounter-card h2 {
+  margin: 4px 0 2px;
+  font-size: 22px;
+  letter-spacing: -0.04em;
+}
+.encounter-meta {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 650;
+  color: #8a6a00;
+}
+.encounter-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.encounter-card .primary-button {
+  margin-top: 12px;
+  padding: 10px 14px;
+}
+.world-side {
+  display: grid;
+  gap: 16px;
+}
+.world-panel {
+  padding: 16px;
+  border: 1px solid #cbd7ba;
+  border-radius: 8px;
+  background: #eef2e4;
+}
+.world-panel-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 12px;
+}
+.world-panel-heading .eyebrow {
+  font-size: 8px;
+}
+.world-here {
+  font:
+    bold 12px "Courier New",
+    monospace;
+  color: var(--green);
+}
+.minimap {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+}
+.minimap-cell {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border-radius: 4px;
+  background: #cfe0b8;
+  color: #4f6b42;
+  font-size: 14px;
+}
+.minimap-cell.has-legendary {
+  background: #fbe7a1;
+  color: #a37a00;
+}
+.minimap-cell.is-here {
+  outline: 2px solid var(--green);
+  outline-offset: -2px;
+  background: #a9cf86;
+}
+.world-status {
+  margin: 12px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 48px);
+  grid-template-rows: repeat(3, 48px);
+  gap: 6px;
+  justify-content: center;
+  touch-action: none;
+  user-select: none;
+}
+.dpad-button {
+  border: 1px solid #b9c9a6;
+  border-radius: 8px;
+  background: #f4f7ec;
+  color: var(--green);
+  font-size: 18px;
+  box-shadow: 0 2px 0 #b9c9a6;
+}
+.dpad-button:active {
+  background: #dfe9cf;
+  transform: translateY(1px);
+  box-shadow: none;
+}
+.dpad-centre {
+  border-radius: 50%;
+  background: #e3ebd5;
+}
+.world-help {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.world-help kbd {
+  padding: 1px 5px;
+  border: 1px solid #c8d3b8;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: #fbfcf7;
+  font:
+    bold 10px "Courier New",
+    monospace;
+}
+@media (max-width: 960px) {
+  .world-layout {
+    grid-template-columns: 1fr;
+  }
+  .world-side {
+    grid-template-columns: 1fr auto;
+    align-items: start;
+  }
+  .world-help {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 560px) {
+  .main-grid:has(#world-view) .auth-section {
+    padding: 28px 16px 32px;
+  }
+  .world-side {
+    grid-template-columns: 1fr;
+  }
+  .encounter-card {
+    position: static;
+    transform: none;
+    width: auto;
+    margin: 12px;
+    animation: none;
+  }
+  .encounter-portrait {
+    width: 64px;
+    height: 64px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .encounter-card {
+    animation: none;
+  }
+}

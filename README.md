@@ -62,7 +62,7 @@ This milestone delivers the runnable client/server framework and preserves exist
 
 ### Legacy cleanup
 
-The old `FrontEnd/`, `BackEnd/` and `BackEndTest/` source trees are no longer maintained or required to build the application. Backend code and tests live under `src/server/`; obsolete frontend code was removed after parity verification. Historical implementations remain available in Git. Empty legacy directories have also been removed from the working copy.
+The old `FrontEnd/` and `BackEnd/` source trees are no longer maintained or required to build the application. Backend code and tests live under `src/server/`; obsolete frontend code was removed after parity verification. `BackEndTest/auth.test.ts` is a compatibility entry point for the maintained authentication suite, so `node --test BackEndTest/auth.test.ts` still works. Historical implementations remain available in Git.
 
 The `BackEnd/` name remains only in the backward-compatible default database location and security regression probes. Starting with the default database configuration may recreate its data directory; that is persistent storage, not a second backend implementation. Do not delete existing databases, legacy-table preservation logic, or private-path tests as obsolete code. Unused legacy dependencies, the old coverage command and the postinstall Git hook mutation have been removed; the maintained runners are Node's test runner and Vitest.
 
@@ -114,5 +114,16 @@ The roster lives in `src/server/modules/recruitment/domain/professors.ts`; polic
 - Other pulls award golden, iron or bronze cages in a 1:5:10 ratio. Cage counts live in `items`; player counters live in `gacha_pity`. Token debit, prize and counters are saved atomically. Tables are created if missing; existing accounts and inventory are retained.
 
 Pool responses include `{ cost, professors, cages }`. Pull responses are `{ kind: "professor", item, isNew, pity, user }` or `{ kind: "cage", cage, quantity, pity, user }`. Inventory returns `{ inventory, cages }`. Recruitment and battle UI remain placeholders. New `Assets/gacha/` artwork is retained privately, not exposed by the public build allowlist.
+
+### Campus map
+
+The lobby's **Explore the campus** button opens a 2.5D (isometric) open world, drawn on a canvas. It runs entirely in the browser:
+
+- The world is 5 × 5 screens of 12 × 12 tiles. The player starts at their house in the middle screen (C3) and walks in 8 directions with WASD, the arrow keys, or the on-screen pad.
+- Walking off a screen's edge arrives at the opposite edge of the next screen; walking off the world's edge wraps around to the other side. Signposts on each edge name the next screen.
+- Scenery is generated from a fixed seed, so the map is the same on every visit. Blocking scenery stays off each screen's outer ring, so every screen can be crossed.
+- Legendary professors (from `GET /api/gacha/pool`) appear at random away from the player and never at home, at most 3 at once. Walking up to one shows an encounter card; battles are not built yet. Spawns are not saved or server-checked; they should move to the server once encounters give rewards.
+
+Rules (layout, walking, wrapping, collisions, spawns) are in `src/client/features/world/world.ts` with tests in `features/world/tests/`. Drawing is in `renderer.ts`, the game loop in `game.ts`, and the page in `pages/WorldPage/`. Only the artwork imported by `features/world/art.ts` (`Assets/outdoor/` and the professors' front pictures) is published; the player and house are drawn in code as placeholders.
 
 Question correctness and rewards remain server-owned. A correct first answer awards one token atomically with the recorded choice. Same-choice retries are idempotent; changed answers are rejected. A lost response enables only explicit same-choice retry in the UI, not automatic resubmission. React renders generated/player content as text.
