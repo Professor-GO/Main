@@ -52,6 +52,13 @@ export default defineConfig(() => {
           // Assets/ stays private.
           fileURLToPath(new URL("./Assets/outdoor", import.meta.url)),
           fileURLToPath(new URL("./Assets/characters", import.meta.url)),
+          // The rooms, the gashapon machine, the battle clearing, and the stickman heads.
+          fileURLToPath(new URL("./Assets/textures", import.meta.url)),
+          fileURLToPath(new URL("./Assets/furniture", import.meta.url)),
+          fileURLToPath(new URL("./Assets/classroom", import.meta.url)),
+          fileURLToPath(new URL("./Assets/gacha", import.meta.url)),
+          fileURLToPath(new URL("./Assets/fighting_scene", import.meta.url)),
+          fileURLToPath(new URL("./Assets/stickman", import.meta.url)),
         ],
       },
     },

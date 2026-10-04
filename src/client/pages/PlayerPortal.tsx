@@ -60,8 +60,19 @@ export default function PlayerPortal() {
       <WorldPage
         onBack={() => {
           setPage("lobby");
-          setSession({ ...session, focus: true });
+          setSession((current) =>
+            current.kind === "authenticated"
+              ? { ...current, focus: true }
+              : current,
+          );
         }}
+        onTokens={(tokens) =>
+          setSession((current) =>
+            current.kind === "authenticated"
+              ? { ...current, player: { ...current.player, tokens } }
+              : current,
+          )
+        }
       />
     );
   return page === "question" ? (

@@ -1,5 +1,27 @@
 /** Server-owned combat rules for wild professor encounters. */
 export const STUDENT_STATS = { health: 100, attack: 600, defense: 20 };
+/** Each level above 1 adds this share to a sent-out professor's health and attack. */
+export const LEVEL_BONUS = 0.1;
+
+/** Whoever fights on the player's side: the student, or a professor they sent out. */
+export type FighterStats = { health: number; attack: number; defense: number };
+
+/**
+ * Works out the battle stats of a professor the player sends out. Roster stats are on a
+ * smaller scale than the student's, so attack is multiplied by 6 and defense divided by 3
+ * to put them on the same footing; levels raise health and attack.
+ */
+export function professorFighter(
+  stats: { health: number; attack: number; defense: number },
+  level: number,
+): FighterStats {
+  const bonus = 1 + LEVEL_BONUS * (level - 1);
+  return {
+    health: Math.round(stats.health * bonus),
+    attack: Math.round(stats.attack * 6 * bonus),
+    defense: Math.max(1, Math.round(stats.defense / 3)),
+  };
+}
 
 export type CombatState = {
   maxHealth: number;
@@ -12,12 +34,16 @@ export type CombatState = {
   pendingEvent: number | null;
   remainingDamage: number;
   status: "fighting" | "question" | "won" | "lost" | "fled";
+  // The player's side. Battles saved before professors could be sent out have none, and
+  // are fought by the student.
+  fighter?: FighterStats;
 };
 
 /** Chooses one checkpoint per requested range, once at the start of a fight. */
 export function createCombat(
   stats: { health: number; attack: number; defense: number },
   random = Math.random,
+  fighter: FighterStats = STUDENT_STATS,
 ): CombatState {
   // Whole HP checkpoints stay inside each range even when max HP is not divisible by the fractions.
   const checkpoint = (lower: number, upper: number) => {
@@ -28,7 +54,8 @@ export function createCombat(
   return {
     maxHealth: stats.health,
     health: stats.health,
-    playerHealth: STUDENT_STATS.health,
+    playerHealth: fighter.health,
+    fighter,
     attack: stats.attack,
     defense: stats.defense,
     checkpoints: [
@@ -61,7 +88,8 @@ function applyDamage(state: CombatState, damage: number): void {
   else {
     state.playerHealth = Math.max(
       0,
-      state.playerHealth - Math.floor(state.attack / STUDENT_STATS.defense),
+      state.playerHealth -
+        Math.floor(state.attack / (state.fighter ?? STUDENT_STATS).defense),
     );
     state.status = state.playerHealth === 0 ? "lost" : "fighting";
   }
@@ -72,7 +100,10 @@ export function strike(state: CombatState): CombatState {
   if (state.status !== "fighting")
     throw new Error("Finish the current question before attacking.");
   const next = structuredClone(state);
-  applyDamage(next, Math.floor(STUDENT_STATS.attack / state.defense));
+  applyDamage(
+    next,
+    Math.floor((state.fighter ?? STUDENT_STATS).attack / state.defense),
+  );
   return next;
 }
 

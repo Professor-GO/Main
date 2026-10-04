@@ -14,22 +14,35 @@ const endEncounter = vi.fn();
 vi.mock("../features/world/Game Mechanics/game", () => ({
   startWorldGame: (options: WorldGameOptions): WorldGame => {
     started.push(options);
-    return { setInput: vi.fn(), endEncounter, stop: vi.fn() };
+    return {
+      setInput: vi.fn(),
+      interact: vi.fn(() => null),
+      setPaused: vi.fn(),
+      endEncounter,
+      stop: vi.fn(),
+    };
   },
 }));
 
-test("meeting a Legendary professor shows their card, and moving on lets them slip away", async () => {
+test("meeting a wild professor shows their card, and moving on lets them slip away", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
+          // Only Rare and Epic professors roam; the Legendary one is left out.
           professors: [
             {
               id: "chao-liu",
               name: "Chao Liu",
               department: "Mechanical Engineering",
               rarity: "Legendary",
+            },
+            {
+              id: "tor-aamodt",
+              name: "Tor Aamodt",
+              department: "Computer Engineering",
+              rarity: "Epic",
             },
           ],
         }),
@@ -40,9 +53,13 @@ test("meeting a Legendary professor shows their card, and moving on lets them sl
   render(<WorldPage onBack={vi.fn()} />);
   await vi.waitFor(() => expect(started).toHaveLength(1));
   const game = started[0];
-  expect(game.professors).toEqual([
-    { id: "chao-liu", name: "Chao Liu", department: "Mechanical Engineering" },
-  ]);
+  const tor = {
+    id: "tor-aamodt",
+    name: "Tor Aamodt",
+    department: "Computer Engineering",
+    rarity: "Epic",
+  };
+  expect(game.professors).toEqual([tor]);
 
   // The game reports a professor two screens away, then the player walking to them.
   act(() =>
@@ -52,7 +69,7 @@ test("meeting a Legendary professor shows their card, and moving on lets them sl
     }),
   );
   expect(screen.getByRole("status")).toHaveTextContent(
-    "1 Legendary professor is roaming: D2.",
+    "1 wild professor is roaming: D2.",
   );
   act(() =>
     game.onHud({
@@ -61,20 +78,19 @@ test("meeting a Legendary professor shows their card, and moving on lets them sl
     }),
   );
   expect(screen.getByRole("img", { name: /screen D2\./ })).toBeVisible();
-  act(() =>
-    game.onEncounter({
-      id: "chao-liu",
-      name: "Chao Liu",
-      department: "Mechanical Engineering",
-    }),
-  );
+  act(() => game.onEncounter(tor));
 
-  const card = screen.getByRole("dialog", { name: "Chao Liu" });
-  expect(card).toHaveTextContent("Legendary · Mechanical Engineering");
+  const card = screen.getByRole("dialog", { name: "Tor Aamodt" });
+  expect(card).toHaveTextContent("Epic · Computer Engineering");
   expect(card).toHaveTextContent("three timed coding quizzes");
-  expect(screen.getByRole("img", { name: "Chao Liu" })).toHaveAttribute(
+  expect(screen.getByRole("img", { name: "Tor Aamodt" })).toHaveAttribute(
     "src",
-    expect.stringContaining("chao_liu_front"),
+    expect.stringContaining("tor_aamodt_front"),
+  );
+  // Until the player's professors are known, they can only send out themselves.
+  expect(screen.getByRole("button", { name: "Yourself" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
   );
   const keepExploring = screen.getByRole("button", { name: /Keep exploring/ });
   expect(screen.getByRole("button", { name: /Fight professor/ })).toHaveFocus();
