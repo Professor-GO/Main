@@ -56,11 +56,16 @@ The recruitable professors are listed in [`BackEnd/Professor Gacha System/Profes
 
 [`BackEnd/Professor Gacha System/gacha.ts`](BackEnd/Professor%20Gacha%20System/gacha.ts) calculates the rest, so they never need to be entered by hand:
 
-- **Pull chance** is proportional to `1 / avgRating`, so better-rated professors are harder to pull. Chances across the pool add up to 1.
 - **Rarity** comes from `avgRating`: Legendary from 4.5, Epic from 4.0, Rare from 3.0, otherwise Common.
-- Each pull costs `PULL_COST` (10) tokens. The token deduction and the recruited professor are saved in one transaction, so a failed pull never costs tokens.
+- **Legendary professors** have a 0.08% chance per pull. After 50 pulls in a row without one, the chance rises in a straight line until pull 80, which is always Legendary. Pulling one resets the count.
+- **Epic professors** have a 5% chance per pull. The 10th pull in a row without one is always Epic, unless it is Legendary.
+- **Rare and Common professors** cannot be pulled.
+- **Cages** fill every other pull: golden, iron, and bronze cages in a 1 : 5 : 10 ratio. They are stored in the `items` table.
+- Professors of the same rarity are equally likely. The pool is never used up, so a player can pull the same professor or cage any number of times.
+- Each player's pity counts are stored in the `gacha_pity` table.
+- Each pull costs `PULL_COST` (10) tokens. The token deduction, the prize, and the pity counts are saved in one transaction, so a failed pull never costs tokens.
 
-The server refuses to start if a roster entry has a duplicate `id`, a rating outside 1–5, an unknown department, or a stat that is not a positive whole number. Do not change a professor's `id` after players have recruited them; it is what `user_professors` stores.
+The server refuses to start if the roster has no Legendary or no Epic professor, or an entry has a duplicate `id`, a rating outside 1–5, an unknown department, or a stat that is not a positive whole number. Do not change a professor's `id` after players have recruited them; it is what `user_professors` stores.
 
 ## API
 
@@ -73,8 +78,9 @@ Use the website origin for browser requests. Send JSON for POST requests.
 | POST | `/api/auth/login` | Authenticates an active account; accepts `username`, `password` |
 | GET | `/api/auth/me` | Returns the authenticated user's public account fields |
 | POST | `/api/auth/logout` | Revokes the current session; send `{}` |
-| GET | `/api/gacha/pool` | Returns `{ "cost", "professors" }`: the pull cost and every professor with `rarity` and `pullChance` |
-| POST | `/api/gacha/pull` | Logged-in players only; send `{}`. Spends tokens and returns `{ "professor", "user" }`, or `409` if the player has too few tokens |
+| GET | `/api/gacha/pool` | Returns `{ "cost", "professors", "cages" }`: the pull cost, and every professor and cage with its `pullChance` before pity |
+| POST | `/api/gacha/pull` | Logged-in players only; send `{}`. Spends tokens and returns `{ "kind": "professor", "item", "isNew", "pity", "user" }` or `{ "kind": "cage", "cage", "quantity", "pity", "user" }`, or `409` if the player has too few tokens |
+| GET | `/api/inventory` | Logged-in players only. Returns `{ "inventory", "cages" }`: the player's professors and cages |
 
 Successful account responses contain `{ "user": { "id", "username", "createdAt", "isActive", "tokens" } }`. Errors contain `{ "message": "..." }` and an appropriate HTTP status.
 

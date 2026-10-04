@@ -76,3 +76,32 @@ CREATE TABLE IF NOT EXISTS inventory (
     -- This also lets SQLite look up a player's inventory quickly.
     UNIQUE (user_id, professor_id)
 );
+
+-- Each player's items, such as the cages pulled from the gacha: one row per kind of item.
+CREATE TABLE IF NOT EXISTS items (
+    id INTEGER PRIMARY KEY,
+
+    -- Removing an account also removes its items.
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+
+    -- The item's id, such as a cage id from BackEnd/Professor Gacha System/gacha.ts.
+    item_id TEXT NOT NULL,
+
+    -- How many of this item the player has. Pulling the item again adds 1.
+    quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 0),
+
+    -- One row per player and item; this also lets SQLite look up a player's items quickly.
+    UNIQUE (user_id, item_id)
+);
+
+-- Each player's gacha pity. A player has no row until their first pull, which counts as 0 for both.
+CREATE TABLE IF NOT EXISTS gacha_pity (
+    -- Removing an account also removes its pity.
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+
+    -- Pulls in a row without a Legendary professor. Pulling one resets it to 0.
+    legendary_pity INTEGER NOT NULL DEFAULT 0 CHECK (legendary_pity >= 0),
+
+    -- Pulls in a row without an Epic professor. Pulling one resets it to 0.
+    epic_pity INTEGER NOT NULL DEFAULT 0 CHECK (epic_pity >= 0)
+);

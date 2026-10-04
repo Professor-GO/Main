@@ -11,7 +11,7 @@ import {
     userById, userByUsername,
 } from "./database.ts";
 import type { UserRow } from "./database.ts";
-import { GACHA_POOL, PULL_COST, inventoryFor, levelUpProfessor, pullProfessor } from "./Professor Gacha System/gacha.ts";
+import { GACHA_CAGES, GACHA_POOL, PULL_COST, cagesFor, inventoryFor, levelUpProfessor, pullGacha } from "./Professor Gacha System/gacha.ts";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const servers: Server[] = [];
@@ -377,12 +377,12 @@ async function main(): Promise<void> {
                 return reply(response, 200, { status: "ok", environment, database: "connected" }, request.method);
             }
             if (path === "/api/gacha/pool") {
-                return reply(response, 200, { cost: PULL_COST, professors: GACHA_POOL });
+                return reply(response, 200, { cost: PULL_COST, professors: GACHA_POOL, cages: GACHA_CAGES });
             }
             if (path === "/api/inventory") {
                 const user = sessionUser(db, requestToken(request));
                 if (!user) throw httpError(401, "Please log in to continue.");
-                return reply(response, 200, { inventory: inventoryFor(db, user.id) });
+                return reply(response, 200, { inventory: inventoryFor(db, user.id), cages: cagesFor(db, user.id) });
             }
             if (path === "/api/auth/me") {
                 const user = sessionUser(db, requestToken(request));
@@ -415,9 +415,10 @@ async function main(): Promise<void> {
             if (path === "/api/gacha/pull") {
                 const user = sessionUser(db, requestToken(request));
                 if (!user) throw httpError(401, "Please log in to continue.");
-                const pull = pullProfessor(db, user.id);
+                const pull = pullGacha(db, user.id);
                 if (!pull) throw httpError(409, `You need ${PULL_COST} tokens to recruit a professor.`);
-                return reply(response, 200, { item: pull.item, isNew: pull.isNew, user: publicUser({ ...user, tokens: pull.tokens }) });
+                const { tokens, ...prize } = pull;
+                return reply(response, 200, { ...prize, user: publicUser({ ...user, tokens }) });
             }
             if (path === "/api/inventory/level-up") {
                 const user = sessionUser(db, requestToken(request));
