@@ -1,0 +1,115 @@
+.eyebrow {
+  font:
+    10px "Courier New",
+    monospace;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  line-height: 1.6;
+  margin: 0;
+}
+.tiny-cross {
+  color: #718b42;
+  font-size: 17px;
+  margin-right: 7px;
+  vertical-align: -1px;
+}
+h1 {
+  margin: 23px 0 18px;
+  font-size: clamp(40px, 3.8vw, 57px);
+  letter-spacing: -0.055em;
+  line-height: 1.06;
+  font-weight: 750;
+}
+.accent-dot {
+  color: #839e4b;
+}
+.intro {
+  color: var(--muted);
+  line-height: 1.65;
+  font-size: 15px;
+  margin: 0 0 29px;
+}
+.field-optional {
+  color: var(--muted);
+  font-size: 10px;
+}
+.primary-button,
+.secondary-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 15px 18px;
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 650;
+  transition:
+    background 0.15s,
+    transform 0.15s;
+}
+.primary-button {
+  margin-top: 26px;
+  background: var(--green);
+  border: 1px solid var(--green);
+  color: #f6f8ec;
+  box-shadow: 0 3px 0 #153328;
+}
+.primary-button span:last-child {
+  font-size: 19px;
+  line-height: 1;
+  font-weight: 400;
+}
+.primary-button:hover:not(:disabled) {
+  background: #33614e;
+  transform: translateY(-1px);
+}
+.primary-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.session-status {
+  min-height: 16px;
+  max-width: 390px;
+  font-size: 11px;
+  color: var(--muted);
+  margin: 17px 0 0;
+}
+.form-message {
+  padding: 11px 12px;
+  background: #f9eae3;
+  border: 1px solid #e9c7b8;
+  color: #8b382a;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 16px 0 0;
+}
+.secondary-button {
+  margin-top: 18px;
+  border: 1px solid #cbd3c1;
+  background: transparent;
+  color: var(--green);
+}
+.secondary-button:hover {
+  background: #edf0e6;
+}
+@media (max-width: 850px) {
+  h1 {
+    font-size: 49px;
+  }
+}
+@media (max-width: 480px) {
+  .eyebrow {
+    font-size: 8px;
+  }
+  h1 {
+    font-size: 45px;
+  }
+  .intro {
+    font-size: 14px;
+  }
+}
+@media (max-width: 360px) {
+  h1 {
+    font-size: 40px;
+  }
+}

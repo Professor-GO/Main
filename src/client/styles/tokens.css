@@ -1,0 +1,11 @@
+:root {
+  font-family: "Segoe UI", Arial, sans-serif;
+  color: #243b32;
+  background: #f8f9f3;
+  font-synthesis: none;
+  --green: #254b3f;
+  --ink: #243b32;
+  --muted: #6b756b;
+  --line: #dce0d4;
+  --lime: #d6ed8b;
+}

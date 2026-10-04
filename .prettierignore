@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+artifacts/
+.agent-teams/
+context/
+Assets/
+BackEnd/data/
+BackEnd/Persistence Layer/data/
+package-lock.json
