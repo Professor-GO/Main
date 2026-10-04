@@ -40,11 +40,34 @@ const question = () => ({
   expiresAt: Date.now() + 10_000,
 });
 const reply = (data: BattleView) => Response.json(data);
+
+/** Separates inventory loading from command mocks and keeps these workflow tests independent of animation duration. */
+function stubBattleFetch(
+  fetcher: (path: string, init?: RequestInit) => unknown,
+  inventory: { professor: { id: string; name: string }; level: number }[] = [],
+) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((path: string, init?: RequestInit) =>
+      path === "/api/inventory"
+        ? Promise.resolve(Response.json({ inventory }))
+        : fetcher(path, init),
+    ),
+  );
+}
 afterEach(() => {
   vi.useRealTimers();
 });
 
-test("a fight pauses for a generated question, then a wrong answer heals the professor", async () => {
+test("a fight pauses for a generated question, then a wrong answer heals the professor and costs player HP", async () => {
   const waiting: BattleView = {
     ...base,
     version: 1,
@@ -58,6 +81,7 @@ test("a fight pauses for a generated question, then a wrong answer heals the pro
     ...base,
     version: 2,
     health: 44,
+    playerHealth: 20,
     eventsTriggered: 1,
     feedback: {
       correct: false,
@@ -66,6 +90,7 @@ test("a fight pauses for a generated question, then a wrong answer heals the pro
       explanation: "The array contains three elements.",
       healed: 9,
       healingPercent: 60,
+      playerDamage: 80,
     },
   };
   const fetcher = vi
@@ -74,7 +99,7 @@ test("a fight pauses for a generated question, then a wrong answer heals the pro
     .mockResolvedValueOnce(reply(waiting))
     .mockResolvedValueOnce(reply(ready))
     .mockResolvedValueOnce(reply(healed));
-  vi.stubGlobal("fetch", fetcher);
+  stubBattleFetch(fetcher);
   render(
     <StrictMode>
       <BattleEncounter professor={professor} onLeave={vi.fn()} />
@@ -88,6 +113,7 @@ test("a fight pauses for a generated question, then a wrong answer heals the pro
   expect(screen.getByRole("heading", { name: "Pop quiz 1 / 3" })).toHaveFocus();
   fireEvent.click(screen.getByRole("button", { name: "B. 2" }));
   await screen.findByText(/recovered 9 HP/);
+  expect(screen.getByText(/You lost 80 HP/)).toBeVisible();
   expect(
     screen.queryByRole("group", { name: "Answer choices" }),
   ).not.toBeInTheDocument();
@@ -122,6 +148,7 @@ test("ten seconds elapsing submits one timeout and shows the healing result", as
         ...base,
         version: 2,
         health: 42,
+        playerHealth: 20,
         eventsTriggered: 1,
         feedback: {
           correct: false,
@@ -130,10 +157,11 @@ test("ten seconds elapsing submits one timeout and shows the healing result", as
           explanation: "Three elements.",
           healed: 7,
           healingPercent: 50,
+          playerDamage: 80,
         },
       }),
     );
-  vi.stubGlobal("fetch", fetcher);
+  stubBattleFetch(fetcher);
   render(<BattleEncounter professor={professor} onLeave={vi.fn()} />);
   await act(async () => {
     await vi.advanceTimersByTimeAsync(0);
@@ -148,6 +176,7 @@ test("ten seconds elapsing submits one timeout and shows the healing result", as
     await vi.advanceTimersByTimeAsync(100);
   });
   expect(screen.getByText(/Time’s up!.*recovered 7 HP/)).toBeVisible();
+  expect(screen.getByText(/You lost 80 HP/)).toBeVisible();
   expect(fetcher).toHaveBeenCalledTimes(2);
   expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({
     kind: "timeout",
@@ -184,7 +213,7 @@ test("lost answer replies allow only an explicit retry of the same choice and ac
     .mockResolvedValueOnce(reply(ready))
     .mockRejectedValueOnce(new Error("lost response"))
     .mockResolvedValueOnce(reply(done));
-  vi.stubGlobal("fetch", fetcher);
+  stubBattleFetch(fetcher);
   render(<BattleEncounter professor={professor} onLeave={vi.fn()} />);
   fireEvent.click(await screen.findByRole("button", { name: "A. 3" }));
   await screen.findByRole("alert");
@@ -195,8 +224,7 @@ test("lost answer replies allow only an explicit retry of the same choice and ac
 });
 
 test("winning allows returning to the paused overworld", async () => {
-  vi.stubGlobal(
-    "fetch",
+  stubBattleFetch(
     vi
       .fn()
       .mockResolvedValue(
@@ -210,4 +238,41 @@ test("winning allows returning to the paused overworld", async () => {
   );
   fireEvent.click(screen.getByRole("button", { name: /Keep exploring/ }));
   expect(leave).toHaveBeenCalledOnce();
+});
+
+test("the player can choose an owned professor's rig before their first attack", async () => {
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(reply(base))
+    .mockResolvedValueOnce(
+      reply({ ...base, version: 1, health: 43, playerHealth: 98 }),
+    );
+  stubBattleFetch(fetcher, [
+    { professor: { id: "chao-liu", name: "Chao Liu" }, level: 2 },
+    { professor: { id: "tor-aamodt", name: "Tor Aamodt" }, level: 1 },
+  ]);
+  render(<BattleEncounter professor={professor} onLeave={vi.fn()} />);
+  const selector = await screen.findByRole("combobox", { name: "Battle as" });
+  expect(
+    screen.getByRole("img", { name: /Chao Liu facing Frank Wood/ }),
+  ).toBeVisible();
+  fireEvent.change(selector, { target: { value: "tor-aamodt" } });
+  expect(
+    screen.getByRole("img", { name: /Tor Aamodt facing Frank Wood/ }),
+  ).toBeVisible();
+  expect(document.querySelector('[data-side="player"] image')).toHaveAttribute(
+    "href",
+    expect.stringContaining("tor_aamodt_front.webp"),
+  );
+  expect(document.querySelector('[data-side="enemy"] image')).toHaveAttribute(
+    "href",
+    expect.stringContaining("frank_wood_front.webp"),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Attack" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument(),
+  );
+  expect(
+    screen.getByRole("img", { name: /Tor Aamodt facing Frank Wood/ }),
+  ).toBeVisible();
 });

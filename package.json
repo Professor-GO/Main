@@ -12,6 +12,7 @@
   "dependencies": {
     "better-auth": "1.7.7",
     "express": "5.1.0",
+    "gsap": "3.15.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },

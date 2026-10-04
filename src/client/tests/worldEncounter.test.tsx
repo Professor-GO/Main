@@ -49,15 +49,28 @@ test("meeting a Legendary professor shows their card, and moving on lets them sl
     game.onHud({
       screen: { col: 2, row: 2 },
       spawnScreens: [{ col: 3, row: 1 }],
+      chasedBy: null,
     }),
   );
   expect(screen.getByRole("status")).toHaveTextContent(
     "1 Legendary professor is roaming: D2.",
   );
+  // A strong professor spots the player and gives chase.
+  act(() =>
+    game.onHud({
+      screen: { col: 2, row: 1 },
+      spawnScreens: [{ col: 3, row: 1 }],
+      chasedBy: "Chao Liu",
+    }),
+  );
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "Chao Liu is chasing you! Outrun them or head home, where you're safe.",
+  );
   act(() =>
     game.onHud({
       screen: { col: 3, row: 1 },
       spawnScreens: [{ col: 3, row: 1 }],
+      chasedBy: null,
     }),
   );
   expect(screen.getByRole("img", { name: /screen D2\./ })).toBeVisible();

@@ -1,7 +1,7 @@
 // Gacha and inventory routes: the professor pool, recruiting, and levelling up.
 
 import { publicUser } from "../../accounts/infrastructure/betterAuth.ts";
-import { GACHA_CAGES, GACHA_POOL, PULL_COST, cagesFor, inventoryFor, levelUpProfessor, pullGacha } from "../application/recruitment.ts";
+import { EPIC_PITY, GACHA_CAGES, GACHA_POOL, PULL_COST, inventoryFor, levelUpProfessor, pityFor, pullGacha } from "../application/recruitment.ts";
 import type { AppContext } from "../../../http/apiApp.ts";
 import { allowMethods, createRouter, httpError, jsonBody } from "../../../http/http.ts";
 import { checkOrigin, requireUser } from "../../accounts/http/session.ts";
@@ -14,12 +14,18 @@ import { checkOrigin, requireUser } from "../../accounts/http/session.ts";
 export function gachaRoutes({ db, auth }: AppContext) {
     const router = createRouter();
 
-    // Public: the pull cost and every professor and cage, with their chances before pity.
+    // Public: the pull cost, every professor with their cage and chance before pity, and the cages.
     router.route("/gacha/pool").all(allowMethods("GET", "HEAD")).get((_request, response) => {
         response.json({ cost: PULL_COST, professors: GACHA_POOL, cages: GACHA_CAGES });
     });
 
-    // Spends PULL_COST tokens to pull a professor or a cage. 409 if the player has too few tokens.
+    // The logged-in player's pity, and how many pulls the Epic-or-Legendary guarantee takes.
+    router.route("/gacha/pity").all(allowMethods("GET")).get(async (request, response) => {
+        const user = await requireUser(auth, request);
+        response.json({ cost: PULL_COST, guarantee: EPIC_PITY, pity: pityFor(db, user.id) });
+    });
+
+    // Spends PULL_COST tokens to pull a professor in their cage. 409 if the player has too few tokens.
     router.route("/gacha/pull").all(allowMethods("POST")).post(checkOrigin, jsonBody, async (request, response) => {
         const user = await requireUser(auth, request);
         const pull = pullGacha(db, user.id);
@@ -28,10 +34,10 @@ export function gachaRoutes({ db, auth }: AppContext) {
         response.json({ ...prize, user: publicUser({ ...user, tokens }) });
     });
 
-    // The logged-in player's professors and cages.
+    // The logged-in player's professors.
     router.route("/inventory").all(allowMethods("GET")).get(async (request, response) => {
         const user = await requireUser(auth, request);
-        response.json({ inventory: inventoryFor(db, user.id), cages: cagesFor(db, user.id) });
+        response.json({ inventory: inventoryFor(db, user.id) });
     });
 
     // Spends copies of a professor to raise their level. 404 if not owned, 409 if more copies are needed.

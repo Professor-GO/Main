@@ -48,10 +48,12 @@ export default defineConfig(() => {
         allow: [
           fileURLToPath(new URL("./src/client", import.meta.url)),
           fileURLToPath(new URL("./node_modules", import.meta.url)),
-          // Artwork the campus map imports (src/client/features/world/art.ts). The rest of
-          // Assets/ stays private.
+          // Artwork the campus map and the recruit page import (src/client/features/world/art.ts
+          // and src/client/features/recruitment/art.ts). The rest of Assets/ stays private.
           fileURLToPath(new URL("./Assets/outdoor", import.meta.url)),
           fileURLToPath(new URL("./Assets/characters", import.meta.url)),
+          fileURLToPath(new URL("./Assets/gacha", import.meta.url)),
+          fileURLToPath(new URL("./Assets/battle/heads", import.meta.url)),
         ],
       },
     },

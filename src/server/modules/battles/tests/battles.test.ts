@@ -146,6 +146,7 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   reply = await call(`battle/${id}/action`, answer);
   assert.equal(reply.data.feedback?.correct, true);
   assert.equal(reply.data.feedback?.healed, 0);
+  assert.equal(reply.data.feedback?.playerDamage, 0);
   assert.deepEqual(
     (await call(`battle/${id}/action`, answer)).data,
     reply.data,
@@ -172,15 +173,33 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
     JSON.stringify(expired),
     id,
   );
-  reply = await call(`battle/${id}/action`, {
+  const lateAnswer = {
     actionId: randomUUID(),
     version: expired.version,
     kind: "answer",
     questionId: expired.quiz!.id,
     selectedIndex: expired.quiz!.answerIndex,
-  });
+  };
+  reply = await call(`battle/${id}/action`, lateAnswer);
   assert.equal(reply.data.feedback?.correct, false);
   assert.equal(reply.data.feedback?.timedOut, true);
+  const quizDamage = Math.floor((expired.combat.playerHealth * 80) / 100);
+  assert.equal(reply.data.feedback?.playerDamage, quizDamage);
+  assert.equal(
+    reply.data.playerHealth,
+    Math.max(
+      0,
+      expired.combat.playerHealth -
+        quizDamage -
+        (reply.data.status === "question" || reply.data.status === "won"
+          ? 0
+          : Math.floor(expired.combat.attack / 20)),
+    ),
+  );
+  assert.deepEqual(
+    (await call(`battle/${id}/action`, lateAnswer)).data,
+    reply.data,
+  );
   const lostHp = expired.combat.maxHealth - expired.combat.health;
   assert.ok(
     reply.data.feedback!.healingPercent >= 50 &&
@@ -207,15 +226,22 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   reply = await call(`battle/${id}`);
   assert.equal(reply.data.feedback?.timedOut, true);
   assert.equal(reply.data.eventsTriggered, 3);
+  assert.equal(
+    reply.data.feedback?.playerDamage,
+    Math.floor((final.combat.playerHealth * 80) / 100),
+  );
   const health = reply.data.health;
-  assert.equal((await call(`battle/${id}`)).data.health, health);
+  const playerHealth = reply.data.playerHealth;
+  const reconciled = (await call(`battle/${id}`)).data;
+  assert.equal(reconciled.health, health);
+  assert.equal(reconciled.playerHealth, playerHealth);
   while (reply.data.status === "fighting")
     reply = await call(`battle/${id}/action`, {
       actionId: randomUUID(),
       version: reply.data.version,
       kind: "attack",
     });
-  assert.equal(reply.data.status, "won");
+  assert.ok(["won", "lost"].includes(reply.data.status));
   assert.equal(
     db.prepare('SELECT tokens FROM "user" WHERE id = ?').get(account.user.id)
       ?.tokens,

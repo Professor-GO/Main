@@ -215,24 +215,29 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
     });
 
     await t.test("the gacha pool is public and pulls spend the player's tokens", async () => {
-        const pool = await api<{ cost: number; professors: { id: string; pullChance: number }[]; cages: { id: string; pullChance: number }[] }>("gacha/pool");
+        const pool = await api<{ cost: number; professors: { id: string; pullChance: number; cage: { id: string } }[]; cages: { id: string }[] }>("gacha/pool");
         assert.equal(pool.response.status, 200);
         assert.equal(pool.data.cost, PULL_COST);
         assert.deepEqual(pool.data.professors.map((professor) => professor.id), GACHA_POOL.map((professor) => professor.id));
         assert.deepEqual(pool.data.cages.map((cage) => cage.id), GACHA_CAGES.map((cage) => cage.id));
+        assert.ok(pool.data.professors.every((professor) => professor.pullChance > 0 && professor.cage.id));
+        assert.equal((await api("gacha/pity")).response.status, 401);
+        const fresh = await api<{ cost: number; guarantee: number; pity: { legendary: number; epic: number } }>("gacha/pity", { cookie: userCookie });
+        assert.deepEqual(fresh.data, { cost: PULL_COST, guarantee: 10, pity: { legendary: 0, epic: 0 } });
         assert.equal((await api("gacha/pull", { body: {} })).response.status, 401);
         const broke = await api("gacha/pull", { body: {}, cookie: userCookie });
         assert.equal(broke.response.status, 409);
         assert.equal(broke.data.message, `You need ${PULL_COST} tokens to recruit a professor.`);
 
         db.prepare('UPDATE "user" SET tokens = ? WHERE id = ?').run(PULL_COST + 3, userId);
-        // Most pulls give a cage, so put the player one pull away from a guaranteed Legendary professor.
+        // Put the player one pull away from a guaranteed Legendary professor.
         db.prepare("INSERT INTO gacha_pity (user_id, legendary_pity) VALUES (?, ?)").run(userId, LEGENDARY_HARD_PITY - 1);
-        const pull = await api<AccountResponse & { kind: string; item: InventoryItem; isNew: boolean; pity: { legendary: number; epic: number } }>("gacha/pull", { body: {}, cookie: userCookie });
+        const pull = await api<AccountResponse & { item: InventoryItem; isNew: boolean; pity: { legendary: number; epic: number } }>("gacha/pull", { body: {}, cookie: userCookie });
         assert.equal(pull.response.status, 200);
-        assert.equal(pull.data.kind, "professor");
         assert.equal(pull.data.item.professor.rarity, "Legendary");
-        assert.deepEqual(pull.data.pity, { legendary: 0, epic: 1 });
+        assert.equal(pull.data.item.professor.cage.id, "golden-cage");
+        assert.deepEqual(pull.data.pity, { legendary: 0, epic: 0 });
+        assert.deepEqual((await api<{ pity: unknown }>("gacha/pity", { cookie: userCookie })).data.pity, { legendary: 0, epic: 0 });
         assert.equal(pull.data.user.tokens, 3);
         assert.equal(pull.data.item.level, 1);
         assert.equal(pull.data.isNew, true);
@@ -245,10 +250,9 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
 
     await t.test("players can only see their own inventory, with each professor's level", async () => {
         assert.equal((await api("inventory")).response.status, 401);
-        const mine = await api<{ inventory: InventoryItem[]; cages: unknown[] }>("inventory", { cookie: userCookie });
+        const mine = await api<{ inventory: InventoryItem[] }>("inventory", { cookie: userCookie });
         assert.equal(mine.response.status, 200);
         assert.equal(mine.data.inventory.length, 1);
-        assert.deepEqual(mine.data.cages, []);
         assert.equal(mine.data.inventory[0].level, 1);
         db.prepare("UPDATE inventory SET level = 7 WHERE user_id = ?").run(userId);
         assert.equal((await api<{ inventory: InventoryItem[] }>("inventory", { cookie: userCookie })).data.inventory[0].level, 7);

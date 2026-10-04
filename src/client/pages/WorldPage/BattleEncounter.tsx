@@ -4,12 +4,19 @@ import {
   battleAction,
   loadBattle,
   loadBattleQuestion,
+  loadOwnedFighters,
   startBattle,
 } from "../../features/world/battleApi";
-import type { BattleAction, BattleView } from "../../features/world/battleApi";
+import type {
+  BattleAction,
+  BattleView,
+  OwnedFighter,
+} from "../../features/world/battleApi";
 import type { LegendaryProfessor } from "../../features/world/Game Mechanics/game";
 import { professorArt } from "../../features/world/art";
 import "./BattleEncounter.css";
+import BattleStage from "../../features/battle/BattleStage";
+import { fighterArt, STUDENT_FIGHTER } from "../../features/battle/fighters";
 
 /** The paused encounter fight and its three timed quiz interruptions. */
 export default function BattleEncounter({
@@ -24,6 +31,13 @@ export default function BattleEncounter({
   const [error, setError] = useState("");
   const [conflict, setConflict] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [animating, setAnimating] = useState(false);
+  const [ownedFighters, setOwnedFighters] = useState<OwnedFighter[] | null>(
+    null,
+  );
+  const [playerId, setPlayerId] = useState("");
+  const [collectionError, setCollectionError] = useState("");
+  const inventoryRequest = useRef<Promise<OwnedFighter[]> | null>(null);
   const encounterId = useRef(crypto.randomUUID());
   const initial = useRef<Promise<BattleView> | null>(null);
   const lock = useRef(false);
@@ -31,6 +45,27 @@ export default function BattleEncounter({
   const retry = useRef<BattleAction | null>(null);
   const dialog = useRef<HTMLDivElement>(null);
   const questionTitle = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    inventoryRequest.current ??= loadOwnedFighters();
+    inventoryRequest.current
+      .then((fighters) => {
+        if (active) {
+          setOwnedFighters(fighters);
+          setPlayerId(fighters[0]?.id ?? "");
+        }
+      })
+      .catch((cause: unknown) => {
+        if (active) {
+          setOwnedFighters([]);
+          setCollectionError(errorMessage(cause));
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     mounted.current = true;
@@ -95,7 +130,12 @@ export default function BattleEncounter({
 
   /** Keeps a failed command unchanged until explicitly retried or refreshed. */
   async function send(kind: BattleAction["kind"], selectedIndex?: number) {
-    if (!battle || lock.current) return;
+    if (
+      !battle ||
+      lock.current ||
+      (kind === "attack" && (animating || ownedFighters === null))
+    )
+      return;
     const action = retry.current ?? {
       actionId: crypto.randomUUID(),
       version: battle.version,
@@ -154,19 +194,38 @@ export default function BattleEncounter({
   const ended = battle && ["won", "lost", "fled"].includes(battle.status);
   const seconds = Math.max(0, Math.ceil(((deadline ?? now) - now) / 1000));
   const art = professorArt(professor.id);
+  const selectedPlayer = ownedFighters?.find(
+    (fighter) => fighter.id === playerId,
+  );
+  const playerArt = selectedPlayer
+    ? fighterArt(selectedPlayer.id, selectedPlayer.name)
+    : STUDENT_FIGHTER;
   return (
     <div className="battle-overlay">
       <div
-        className="battle-card"
+        className={`battle-card${battle?.status === "question" ? " is-quiz" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="battle-title"
         tabIndex={-1}
         ref={dialog}
         onKeyDown={(event) => {
+          if (
+            [
+              "ArrowUp",
+              "ArrowDown",
+              "ArrowLeft",
+              "ArrowRight",
+              "KeyW",
+              "KeyA",
+              "KeyS",
+              "KeyD",
+            ].includes(event.code)
+          )
+            event.stopPropagation();
           if (event.key !== "Tab") return;
-          const buttons = dialog.current?.querySelectorAll<HTMLButtonElement>(
-            "button:not(:disabled)",
+          const buttons = dialog.current?.querySelectorAll<HTMLElement>(
+            "button:not(:disabled), select:not(:disabled)",
           );
           if (!buttons?.length) {
             event.preventDefault();
@@ -198,34 +257,73 @@ export default function BattleEncounter({
         </div>
         {battle ? (
           <>
-            <label className="battle-health">
-              Professor HP{" "}
-              <span>
-                {battle.health} / {battle.maxHealth}
-              </span>
-              <progress
-                aria-label="Professor HP"
-                value={battle.health}
-                max={battle.maxHealth}
-              />
-            </label>
-            <label className="battle-health">
-              Your HP{" "}
-              <span>
-                {battle.playerHealth} / {battle.playerMaxHealth}
-              </span>
-              <progress
-                aria-label="Your HP"
-                value={battle.playerHealth}
-                max={battle.playerMaxHealth}
-              />
-            </label>
+            {battle.version === 0 &&
+              ownedFighters !== null &&
+              ownedFighters.length > 0 && (
+                <label className="battle-fighter-select">
+                  Battle as
+                  <select
+                    value={playerId}
+                    disabled={busy || animating}
+                    onChange={(event) => setPlayerId(event.target.value)}
+                  >
+                    {ownedFighters.map((fighter) => (
+                      <option key={fighter.id} value={fighter.id}>
+                        {fighter.name} · Lv. {fighter.level}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            {ownedFighters === null ? (
+              <p className="battle-collection-note" role="status">
+                Loading your professors…
+              </p>
+            ) : (
+              ownedFighters.length === 0 && (
+                <p className="battle-collection-note">
+                  {collectionError
+                    ? "Your collection could not be loaded. You can still practice with the student."
+                    : "No recruited professors yet. Practice with the student."}
+                </p>
+              )
+            )}
+            <BattleStage
+              player={playerArt}
+              enemy={fighterArt(professor.id, professor.name)}
+              battle={battle}
+              onAnimating={setAnimating}
+            />
+            <div className="battle-health-bars">
+              <label className="battle-health">
+                Your HP{" "}
+                <span>
+                  {battle.playerHealth} / {battle.playerMaxHealth}
+                </span>
+                <progress
+                  aria-label="Your HP"
+                  value={battle.playerHealth}
+                  max={battle.playerMaxHealth}
+                />
+              </label>
+              <label className="battle-health">
+                Professor HP{" "}
+                <span>
+                  {battle.health} / {battle.maxHealth}
+                </span>
+                <progress
+                  aria-label="Professor HP"
+                  value={battle.health}
+                  max={battle.maxHealth}
+                />
+              </label>
+            </div>
             {battle.feedback && (
               <div className="battle-feedback" role="status">
                 <strong>
                   {battle.feedback.correct
                     ? "Correct! No healing penalty."
-                    : `${battle.feedback.timedOut ? "Time’s up!" : "Incorrect."} ${professor.name} recovered ${battle.feedback.healed} HP (${battle.feedback.healingPercent}% of lost HP).`}
+                    : `${battle.feedback.timedOut ? "Time’s up!" : "Incorrect."} ${professor.name} recovered ${battle.feedback.healed} HP (${battle.feedback.healingPercent}% of lost HP).${battle.feedback.playerDamage !== undefined ? ` You lost ${battle.feedback.playerDamage} HP (80% of your current HP, rounded down).` : ""}`}
                 </strong>
                 <p>{battle.feedback.explanation}</p>
               </div>
@@ -243,8 +341,9 @@ export default function BattleEncounter({
                   Pop quiz {battle.eventNumber} / 3
                 </h3>
                 <p>
-                  Answer in 10 seconds. A wrong answer or timeout heals 50–80%
-                  of lost HP.
+                  Answer in 10 seconds. A wrong answer or timeout heals the
+                  professor for 50–80% of their lost HP and costs you 80% of
+                  your current HP (damage rounded down).
                 </p>
                 {battle.question ? (
                   <>
@@ -304,7 +403,13 @@ export default function BattleEncounter({
                 <button
                   type="button"
                   className="primary-button"
-                  disabled={busy || !!error || battle.status !== "fighting"}
+                  disabled={
+                    busy ||
+                    animating ||
+                    ownedFighters === null ||
+                    !!error ||
+                    battle.status !== "fighting"
+                  }
                   onClick={() => void send("attack")}
                 >
                   Attack
@@ -312,7 +417,7 @@ export default function BattleEncounter({
                 <button
                   type="button"
                   className="secondary-button"
-                  disabled={busy || !!error}
+                  disabled={busy || animating || !!error}
                   onClick={() => void send("flee")}
                 >
                   Run away
