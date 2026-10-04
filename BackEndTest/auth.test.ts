@@ -275,7 +275,7 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
 
     await t.test("authenticated players can request a coding question", async () => {
         const login = await api("auth/login", { body: { username: "TestPlayer", password } });
-        const result = await api("question", { cookie: login.cookie, headers: { Origin: origin }, method: "GET" });
+        const result = await api<{ question: string; topic: string; difficulty: string; source: string }>("question", { cookie: login.cookie, headers: { Origin: origin }, method: "GET" });
         assert.equal(result.response.status, 200);
         assert.equal(typeof result.data.question, "string");
         assert.ok(result.data.question.length > 0);

@@ -16,6 +16,7 @@ import { GACHA_POOL, PULL_COST, inventoryFor, levelUpProfessor, pullProfessor } 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const servers: Server[] = [];
 let database: DatabaseSync | undefined;
+let test = "";
 
 /**
  * Reads a port number from an environment variable.
@@ -175,7 +176,14 @@ function rateLimiter(maximum: number): (request: IncomingMessage) => void {
     };
 }
 // Fallback coding question in case Gemini is unavailable.
-function fallbackCodingQuestion() {
+function fallbackCodingQuestion(): {
+    source: string;
+    topic: string;
+    difficulty: string;
+    question: string;
+    hint: string;
+    message?: string;
+} {
     return {
         source: "fallback",
         topic: "arrays",
@@ -185,9 +193,9 @@ function fallbackCodingQuestion() {
     };
 }
 
-function parseGeminiQuestion(text) {
+function parseGeminiQuestion(text: string) {
     const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-    const candidates = [trimmed, trimmed.match(/\{[\s\S]*\}/)?.[0]].filter(Boolean);
+    const candidates = [trimmed, trimmed.match(/\{[\s\S]*\}/)?.[0]].filter((candidate): candidate is string => Boolean(candidate));
     for (const candidate of candidates) {
         try {
             const parsed = JSON.parse(candidate);
@@ -235,6 +243,12 @@ function buildGeminiPayload() {
     };
 }
 
+// The parts of Gemini's generateContent reply that we read. Every field is optional
+// because Gemini can leave them out, for example when it blocks a reply.
+type GeminiResponse = {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+};
+
 /**
  * Fetches a response from Gemini for a specific model.
  */
@@ -249,7 +263,7 @@ async function fetchFromGemini(endpoint: URL): Promise<string | null> {
 
         if (!response.ok) return null;
 
-        const data = await response.json();
+        const data = await response.json() as GeminiResponse;
         const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("");
         return text || null;
     } catch {
@@ -278,7 +292,7 @@ function getModelsToTry(configuredModel: string | undefined): string[] {
         "gemini-3.8-flash",
         "gemini-3.5-flash-lite",
         "gemini-2.5-flash",
-    ])].filter(Boolean);
+    ])].filter((model): model is string => Boolean(model));
 }
 
 /**
