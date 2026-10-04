@@ -7,7 +7,7 @@
 //
 // This list is shared by every player. Anything that differs from player to
 // player, such as a professor's level, is stored in the inventory table instead
-// (see BackEnd/schema.sql).
+// (see BackEnd/Persistence Layer/schema.sql).
 //
 // The names and images match the folders in Assets/characters. The ratings,
 // departments, defense, speed, and copiesToLevelUp are still placeholders until the real values are chosen.

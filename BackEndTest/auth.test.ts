@@ -9,9 +9,9 @@ import { tmpdir } from "node:os";
 import { resolve, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:net";
-import { DatabaseSync } from "node:sqlite";
-import { openDatabase, tokenHash, userById, STARTING_TOKENS } from "../BackEnd/database.ts";
-import type { PublicUser } from "../BackEnd/database.ts";
+import { openDatabase } from "../BackEnd/Persistence Layer/database.ts";
+import { STARTING_TOKENS, hiddenEmail } from "../BackEnd/Persistence Layer/auth.ts";
+import type { PublicUser } from "../BackEnd/Persistence Layer/auth.ts";
 import { GACHA_POOL, PULL_COST } from "../BackEnd/Professor Gacha System/gacha.ts";
 import type { InventoryItem } from "../BackEnd/Professor Gacha System/gacha.ts";
 
@@ -24,6 +24,8 @@ type ApiOptions = {
 };
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+// Signs session cookies in the test servers. Production refuses to start without one.
+const TEST_SECRET = "test-secret-for-account-tests-only-0123456789";
 
 /**
  * Finds a port that nothing is using, so test servers never clash with a running copy of the app.
@@ -59,7 +61,7 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
     async function start(environment = "test") {
         const serverProcess = spawn(process.execPath, ["BackEnd/server.ts"], {
             cwd: root,
-            env: { ...process.env, APP_ENV: environment, FRONTEND_HOST: "127.0.0.1", FRONTEND_PORT: String(frontendPort), BACKEND_HOST: "127.0.0.1", BACKEND_PORT: String(backendPort), DATABASE_PATH: databasePath, GEMINI_API_KEY: "" },
+            env: { ...process.env, APP_ENV: environment, FRONTEND_HOST: "127.0.0.1", FRONTEND_PORT: String(frontendPort), BACKEND_HOST: "127.0.0.1", BACKEND_PORT: String(backendPort), DATABASE_PATH: databasePath, GEMINI_API_KEY: "", BETTER_AUTH_SECRET: TEST_SECRET, BETTER_AUTH_URL: "" },
             stdio: ["ignore", "pipe", "pipe"], windowsHide: true,
         });
         child = serverProcess;
@@ -112,7 +114,17 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
     });
     await start();
     let userCookie: string | undefined;
-    let userId: number;
+    let userId: string;
+
+    /**
+     * Reads a player's row from Better Auth's user table.
+     * @param id - The player's user id.
+     * @returns The row, or undefined if there is no such player.
+     */
+    function userRow(id: string) {
+        return db.prepare('SELECT * FROM "user" WHERE id = ?').get(id) as
+            { username: string; displayUsername: string; email: string; createdAt: string; isActive: number; tokens: number } | undefined;
+    }
 
     await t.test("serves the UI and health; keeps backend files private", async () => {
         const page = await fetch(origin);
@@ -120,7 +132,7 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         assert.match(await page.text(), /Professor-Go/);
         const health = await api("health");
         assert.equal(health.data.database, "connected");
-        for (const path of ["/.env", "/BackEnd/data/game.sqlite", "/BackEnd/server.ts", "/BackEnd/schema.sql"]) {
+        for (const path of ["/.env", "/BackEnd/Persistence Layer/data/game.sqlite", "/BackEnd/server.ts", "/BackEnd/Persistence Layer/schema.sql", "/BackEnd/Persistence Layer/questions.sql", "/BackEnd/Persistence Layer/auth.ts"]) {
             assert.equal((await fetch(origin + path)).status, 404);
         }
         assert.equal((await api("auth/login")).response.status, 405);
@@ -135,20 +147,24 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         assert.ok(Number.isFinite(Date.parse(result.data.user.createdAt)));
         assert.equal(result.data.user.tokens, STARTING_TOKENS);
         assert.deepEqual(Object.keys(result.data.user).sort(), ["createdAt", "id", "isActive", "tokens", "username"]);
-        assert.match(result.response.headers.get("set-cookie") ?? "", /HttpOnly; SameSite=Lax; Path=\/; Max-Age=604800/);
+        assert.match(result.response.headers.get("set-cookie") ?? "", /^professor-go\.session_token=[^;]+; Max-Age=604800; Path=\/; HttpOnly; SameSite=Lax$/);
         userCookie = result.cookie;
         assert.ok(userCookie);
         userId = result.data.user.id;
-        const stored = userById(db, userId);
+        const stored = userRow(userId);
         assert.ok(stored);
-        assert.match(stored.password_hash, /^scrypt:[0-9a-f]{32}:[0-9a-f]{128}$/);
-        assert.ok(!stored.password_hash.includes(password));
-        assert.equal(stored.created_at, result.data.user.createdAt);
-        assert.equal(stored.is_active, 1);
+        // Better Auth keeps usernames lowercase, with the original casing as displayUsername.
+        assert.deepEqual([stored.username, stored.displayUsername, stored.email], ["testplayer", "TestPlayer", hiddenEmail("TestPlayer")]);
+        assert.equal(stored.createdAt, result.data.user.createdAt);
+        assert.equal(stored.isActive, 1);
         assert.equal(stored.tokens, STARTING_TOKENS);
-        const session = db.prepare("SELECT * FROM sessions WHERE user_id = ?").get(userId);
-        assert.ok(session);
-        assert.equal(session.token_hash, tokenHash(userCookie.split("=")[1]));
+        // The password is only stored as a salted scrypt hash, in Better Auth's account table.
+        const account = db.prepare("SELECT password FROM account WHERE userId = ? AND providerId = 'credential'").get(userId) as { password: string } | undefined;
+        assert.match(account?.password ?? "", /^[0-9a-f]+:[0-9a-f]+$/);
+        assert.ok(!account?.password.includes(password));
+        // The cookie holds the session token plus a signature, so it cannot be forged.
+        const session = db.prepare("SELECT token FROM session WHERE userId = ?").get(userId) as { token: string } | undefined;
+        assert.equal(session?.token, decodeURIComponent(userCookie.split("=")[1]).split(".")[0]);
         assert.equal((await api<AccountResponse>("auth/me", { cookie: userCookie })).data.user.id, userId);
     });
 
@@ -191,11 +207,11 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
     });
 
     await t.test("token balances are stored, returned, and never negative", async () => {
-        db.prepare("UPDATE users SET tokens = 25 WHERE id = ?").run(userId);
+        db.prepare('UPDATE "user" SET tokens = 25 WHERE id = ?').run(userId);
         assert.equal((await api<AccountResponse>("auth/me", { cookie: userCookie })).data.user.tokens, 25);
-        assert.throws(() => db.prepare("UPDATE users SET tokens = -1 WHERE id = ?").run(userId), /CHECK constraint failed/);
-        assert.equal(userById(db, userId)?.tokens, 25);
-        db.prepare("UPDATE users SET tokens = 0 WHERE id = ?").run(userId);
+        assert.throws(() => db.prepare('UPDATE "user" SET tokens = -1 WHERE id = ?').run(userId), /tokens cannot be negative/);
+        assert.equal(userRow(userId)?.tokens, 25);
+        db.prepare('UPDATE "user" SET tokens = 0 WHERE id = ?').run(userId);
     });
 
     await t.test("the gacha pool is public and pulls spend the player's tokens", async () => {
@@ -208,7 +224,7 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         assert.equal(broke.response.status, 409);
         assert.equal(broke.data.message, `You need ${PULL_COST} tokens to recruit a professor.`);
 
-        db.prepare("UPDATE users SET tokens = ? WHERE id = ?").run(PULL_COST + 3, userId);
+        db.prepare('UPDATE "user" SET tokens = ? WHERE id = ?').run(PULL_COST + 3, userId);
         const pull = await api<AccountResponse & { item: InventoryItem; isNew: boolean }>("gacha/pull", { body: {}, cookie: userCookie });
         assert.equal(pull.response.status, 200);
         assert.equal(pull.data.user.tokens, 3);
@@ -218,7 +234,7 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         const owned = db.prepare("SELECT professor_id FROM inventory WHERE user_id = ?").all(userId);
         assert.deepEqual(owned.map((row) => row.professor_id), [pull.data.item.professor.id]);
         assert.equal((await api("gacha/pull", { body: {}, cookie: userCookie })).response.status, 409);
-        db.prepare("UPDATE users SET tokens = 0 WHERE id = ?").run(userId);
+        db.prepare('UPDATE "user" SET tokens = 0 WHERE id = ?').run(userId);
     });
 
     await t.test("players can only see their own inventory, with each professor's level", async () => {
@@ -256,11 +272,11 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
     });
 
     await t.test("inactive accounts cannot sign in or use an existing session", async () => {
-        db.prepare("UPDATE users SET is_active = 0 WHERE id = ?").run(userId);
+        db.prepare('UPDATE "user" SET isActive = 0 WHERE id = ?').run(userId);
         assert.equal((await api("auth/me", { cookie: userCookie })).response.status, 401);
         assert.equal((await api("auth/login", { body: { username: "TestPlayer", password } })).response.status, 403);
         assert.equal((await api("auth/login", { body: { username: "TestPlayer", password: "wrong-password" } })).response.status, 401);
-        db.prepare("UPDATE users SET is_active = 1 WHERE id = ?").run(userId);
+        db.prepare('UPDATE "user" SET isActive = 1 WHERE id = ?').run(userId);
         const login = await api("auth/login", { body: { username: "TestPlayer", password } });
         assert.equal(login.response.status, 200);
         userCookie = login.cookie;
@@ -273,9 +289,10 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         assert.equal((await api("auth/me", { cookie: userCookie })).response.status, 401);
     });
 
-    await t.test("authenticated players can request a coding question", async () => {
+    await t.test("questions hide the answer and award one token only once, including after restarts", async () => {
         const login = await api("auth/login", { body: { username: "TestPlayer", password } });
-        type Question = { question: string; topic: string; difficulty: string; source: string; choices: string[]; answerIndex: number; explanation: string };
+        type Question = { id: string; question: string; topic: string; difficulty: string; source: string; choices: string[] };
+        type Answer = { correct: boolean; tokensAwarded: number; tokens: number; answerIndex: number; explanation: string; alreadyAnswered: boolean };
         const result = await api<Question>("question", { cookie: login.cookie, headers: { Origin: origin }, method: "GET" });
         assert.equal(result.response.status, 200);
         assert.equal(typeof result.data.question, "string");
@@ -283,33 +300,62 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         assert.equal(typeof result.data.topic, "string");
         assert.equal(typeof result.data.difficulty, "string");
         assert.equal(typeof result.data.source, "string");
-        // Multiple choice: four different options, and answerIndex points at one of them.
+        assert.equal((await api("question")).response.status, 401);
+        assert.equal("answerIndex" in result.data, false);
+        assert.equal("explanation" in result.data, false);
+        // Tests run without Gemini; locate the known correct fallback answer.
         assert.equal(result.data.choices.length, 4);
         assert.equal(new Set(result.data.choices).size, 4);
-        assert.ok(Number.isInteger(result.data.answerIndex) && result.data.answerIndex >= 0 && result.data.answerIndex < 4);
-        assert.ok(result.data.explanation.length > 0);
-
-        // The fallback question's correct answer moves around instead of always being first.
-        const positions = new Set<number>();
-        for (let attempt = 0; attempt < 20; attempt++) {
-            const again = await api<Question>("question", { cookie: login.cookie, headers: { Origin: origin }, method: "GET" });
-            assert.equal(again.data.choices[again.data.answerIndex], result.data.choices[result.data.answerIndex]);
-            positions.add(again.data.answerIndex);
+        const selectedIndex = result.data.choices.indexOf("[...new Set(names)]");
+        assert.ok(selectedIndex >= 0);
+        const body = { questionId: result.data.id, selectedIndex };
+        const balance = userRow(userId)?.tokens as number;
+        assert.equal((await api("question/answer", { body })).response.status, 401);
+        const other = await api("auth/login", { body: { username: "SecondPlayer", password } });
+        assert.equal((await api("question/answer", { body, cookie: other.cookie })).response.status, 404);
+        assert.equal((await api("question/answer", { body, cookie: login.cookie, headers: { Origin: "https://other.example" } })).response.status, 403);
+        for (const invalid of [-1, 4, 0.5, "0", null]) {
+            assert.equal((await api("question/answer", { body: { ...body, selectedIndex: invalid }, cookie: login.cookie })).response.status, 400);
         }
-        assert.ok(positions.size > 1);
+        // Pending questions and their owner survive restarts, then concurrent answers pay once.
+        await stop();
+        await start();
+        const answers = await Promise.all([0, 1].map(() => api<Answer>("question/answer", { body, cookie: login.cookie })));
+        assert.ok(answers.every((answer) => answer.response.status === 200 && answer.data.correct));
+        assert.equal(answers.reduce((sum, answer) => sum + answer.data.tokensAwarded, 0), 1);
+        assert.equal(userRow(userId)?.tokens, balance + 1);
+        assert.equal(answers[0].data.answerIndex, selectedIndex);
+        assert.ok(answers[0].data.explanation.length > 0);
+        await stop();
+        await start();
+        const replay = await api<Answer>("question/answer", { body, cookie: login.cookie });
+        assert.equal(replay.data.tokensAwarded, 0);
+        assert.equal(replay.data.alreadyAnswered, true);
+        assert.equal((await api<AccountResponse>("auth/me", { cookie: login.cookie })).data.user.tokens, balance + 1);
+
+        // A wrong first answer stays wrong, even after the correct answer is revealed.
+        const wrong = (await api<Question>("question", { cookie: login.cookie })).data;
+        const correctIndex = wrong.choices.indexOf("[...new Set(names)]");
+        const failed = await api<Answer>("question/answer", {
+            body: { questionId: wrong.id, selectedIndex: (correctIndex + 1) % 4, correct: true, tokens: 1000 }, cookie: login.cookie,
+        });
+        assert.equal(failed.data.correct, false);
+        assert.equal(failed.data.tokensAwarded, 0);
+        assert.equal(failed.data.tokens, balance + 1);
+        assert.equal((await api("question/answer", { body: { questionId: wrong.id, selectedIndex: correctIndex }, cookie: login.cookie })).response.status, 409);
     });
 
     await t.test("expired or invented sessions are rejected", async () => {
         const login = await api("auth/login", { body: { username: "TestPlayer", password } });
-        db.prepare("UPDATE sessions SET expires_at = ? WHERE user_id = ?").run(Date.now() - 1000, userId);
+        db.prepare("UPDATE session SET expiresAt = ? WHERE userId = ?").run(new Date(Date.now() - 1000).toISOString(), userId);
         assert.equal((await api("auth/me", { cookie: login.cookie })).response.status, 401);
-        assert.equal((await api("auth/me", { cookie: "arena_session=fake" })).response.status, 401);
+        assert.equal((await api("auth/me", { cookie: "professor-go.session_token=fake" })).response.status, 401);
     });
 
     await t.test("the account-status command revokes sessions and supports reactivation", async () => {
         const login = await api("auth/login", { body: { username: "TestPlayer", password } });
         for (const status of ["inactive", "active"]) {
-            const result = await promisify(execFile)(process.execPath, ["BackEnd/account-status.ts", "testplayer", status], {
+            const result = await promisify(execFile)(process.execPath, ["BackEnd/Persistence Layer/account-status.ts", "testplayer", status], {
                 cwd: root, env: { ...process.env, DATABASE_PATH: databasePath }, windowsHide: true,
             });
             assert.match(result.stdout, new RegExp(`is now ${status}`));
@@ -323,7 +369,7 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         await start("production");
         const result = await api("auth/login", { body: { username: "TestPlayer", password } });
         assert.equal(result.response.status, 200);
-        assert.match(result.response.headers.get("set-cookie") ?? "", /; Secure$/);
+        assert.match(result.response.headers.get("set-cookie") ?? "", /^__Secure-professor-go\.session_token=[^;]+;.*; Secure/);
     });
 
     await t.test("repeated authentication attempts are rate limited", async () => {
@@ -331,39 +377,4 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         for (let index = 0; index < 61; index++) status = (await api("auth/login", { body: {} })).response.status;
         assert.equal(status, 429);
     });
-});
-
-test("older databases gain a zero token balance without losing accounts", async (t) => {
-    const directory = await mkdtemp(join(tmpdir(), "professor-go-test-"));
-    t.after(async () => {
-        assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + sep));
-        await rm(directory, { recursive: true, force: true });
-    });
-    const databasePath = join(directory, "legacy.sqlite");
-    const legacy = new DatabaseSync(databasePath);
-    legacy.exec(`
-        CREATE TABLE users (
-            id INTEGER PRIMARY KEY,
-            username TEXT NOT NULL COLLATE NOCASE UNIQUE,
-            password_hash TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-            is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1))
-        );
-        INSERT INTO users (username, password_hash) VALUES ('Veteran', 'scrypt:aa:bb');
-    `);
-    legacy.close();
-    for (let opening = 0; opening < 2; opening++) {
-        const db = openDatabase(databasePath);
-        const user = userById(db, 1);
-        db.close();
-        assert.equal(user?.username, "Veteran");
-        assert.equal(user?.tokens, 0);
-    }
-});
-
-test("the schema's default token balance matches STARTING_TOKENS", () => {
-    const db = openDatabase(":memory:");
-    const id = db.prepare("INSERT INTO users (username, password_hash) VALUES ('Newcomer', 'scrypt:aa:bb')").run().lastInsertRowid;
-    assert.equal(userById(db, id)?.tokens, STARTING_TOKENS);
-    db.close();
 });
