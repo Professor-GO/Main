@@ -5,7 +5,7 @@ import {
   enemyStrike,
   resolveQuiz,
   strike,
-} from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
+} from "../domain/encounterBattle.ts";
 
 test("checkpoints fall inside both health bands and at 10% for every current professor HP", () => {
   for (const health of [48, 50, 57, 62, 67, 89, 200]) {

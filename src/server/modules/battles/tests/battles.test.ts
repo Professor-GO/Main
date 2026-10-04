@@ -10,7 +10,7 @@ import {
   readBattle,
   publicBattle,
   changeBattle,
-} from "../../../../../BackEnd/Persistence Layer/encounterBattles.ts";
+} from "../infrastructure/sqliteEncounterBattles.ts";
 
 test("encounter API binds questions to fights, enforces timeouts and retries, and never awards tokens", async (t) => {
   const db = openDatabase(":memory:");
@@ -76,7 +76,8 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
     };
   };
   const id = randomUUID();
-  let reply = await call("battle/start", { level: 10,
+  let reply = await call("battle/start", {
+    level: 10,
     encounterId: id,
     professorId: "frank-wood",
   });
@@ -158,13 +159,18 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
     409,
   );
   assert.equal(
-    (await call("battle/start", { level: 10, encounterId: id, professorId: "frank-wood" }))
+    (await call("battle/start", {
+        encounterId: id,
+        professorId: "frank-wood",
+        level: 10,
+      }))
       .data.health,
     50,
   );
   assert.equal(
     (
-      await call("battle/start", { level: 10,
+      await call("battle/start", {
+        level: 10,
         encounterId: randomUUID(),
         professorId: "tor-aamodt",
       })
@@ -358,7 +364,8 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
 
   // A storage failure rolls back both HP and the idempotency receipt.
   const anotherId = randomUUID();
-  await call("battle/start", { level: 10,
+  await call("battle/start", {
+    level: 10,
     encounterId: anotherId,
     professorId: "frank-wood",
   });
@@ -429,7 +436,8 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   assert.equal(reserves.data.status, "lost");
   assert.ok(reserves.data.fighters?.every((fighter) => fighter.defeated));
   const rollbackId = randomUUID();
-  await call("battle/start", { level: 10,
+  await call("battle/start", {
+    level: 10,
     encounterId: rollbackId,
     professorId: "frank-wood",
   });

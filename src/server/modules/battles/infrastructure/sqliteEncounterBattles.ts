@@ -1,8 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
-import { levelBonuses, levelsOf } from "../Game Engine/encounterBattle.ts";
-import type { CombatState } from "../Game Engine/encounterBattle.ts";
-import { httpError } from "../../src/server/http/http.ts";
-import type { CodingQuestion } from "../../src/server/modules/questions/infrastructure/gemini.ts";
+import { levelBonuses, levelsOf } from "../domain/encounterBattle.ts";
+import type { CombatState } from "../domain/encounterBattle.ts";
+import { httpError } from "../../../http/http.ts";
+import type { CodingQuestion } from "../../questions/infrastructure/gemini.ts";
 
 export type Battle = {
   id: string;

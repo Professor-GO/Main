@@ -2,14 +2,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { readConfig } from "../config.ts";
+import { DEFAULT_DATABASE_PATH } from "../../storage/database.ts";
 
-test("source relocation does not change default storage", () => {
+test("default storage lives under src/server and agrees with the account administration path", () => {
     const root = resolve("fixture-root");
     const config = readConfig(root, {});
-    assert.equal(config.databasePath, resolve(root, "BackEnd/Persistence Layer/data/game.sqlite"));
+    assert.equal(config.databasePath, resolve(root, "src/server/storage/data/game.sqlite"));
     assert.equal(config.frontendPort, 3000);
     assert.equal(config.backendPort, 3001);
+    const projectRoot = fileURLToPath(new URL("../../../../", import.meta.url));
+    assert.equal(readConfig(projectRoot, {}).databasePath, DEFAULT_DATABASE_PATH);
 });
 
 test("database overrides remain repository-relative or absolute", () => {

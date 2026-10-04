@@ -12,8 +12,8 @@ import {
   prepareSummons,
   strike,
   summon,
-} from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
-import type { CombatState } from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
+} from "../domain/encounterBattle.ts";
+import type { CombatState } from "../domain/encounterBattle.ts";
 
 // A professor with plenty of health, so no strike in these tests reaches a quiz checkpoint.
 const PROFESSOR = { health: 10_000, attack: 400, defense: 50 };
@@ -29,7 +29,13 @@ function fightAt(enemyLevel: number, playerLevel: number): CombatState {
   const combat = createCombat(PROFESSOR, () => 0, enemyLevel);
   return summon(
     prepareSummons(combat, [
-      { id: "tor-aamodt", name: "Tor Aamodt", level: playerLevel, stats: FIGHTER_STATS, defeated: false },
+      {
+        id: "tor-aamodt",
+        name: "Tor Aamodt",
+        level: playerLevel,
+        stats: FIGHTER_STATS,
+        defeated: false,
+      },
     ]),
     "tor-aamodt",
   );
@@ -40,7 +46,10 @@ test("wild professors are level 10 to 100, and other levels are refused", () => 
   for (const level of [10, 55, 100])
     assert.equal(createCombat(PROFESSOR, () => 0, level).level, level);
   for (const level of [9, 101, 10.5, Number.NaN])
-    assert.throws(() => createCombat(PROFESSOR, () => 0, level), /from 10 to 100/);
+    assert.throws(
+      () => createCombat(PROFESSOR, () => 0, level),
+      /from 10 to 100/,
+    );
 });
 
 test("the higher level gets 5% more for each level above the opponent; the lower level gets nothing", () => {
@@ -69,7 +78,10 @@ test("a higher-level fighter gets the bonus instead", () => {
   const state = fightAt(10, 50);
   assert.deepEqual(levelBonuses(state), { player: 300, enemy: 100 });
   assert.equal(strike(state).health, 10_000 - Math.floor((300 * 3) / 50));
-  assert.equal(enemyStrike(state).playerHealth, 1000 - Math.floor(400 / (40 * 3)));
+  assert.equal(
+    enemyStrike(state).playerHealth,
+    1000 - Math.floor(400 / (40 * 3)),
+  );
 });
 
 test("fighters of the same level fight on the base stats", () => {
@@ -88,7 +100,13 @@ test("the bonus is worked out exactly, with no rounding drift", () => {
   );
   const state = summon(
     prepareSummons(combat, [
-      { id: "t", name: "T", level: 10, stats: { ...FIGHTER_STATS, defense: 2 }, defeated: false },
+      {
+        id: "t",
+        name: "T",
+        level: 10,
+        stats: { ...FIGHTER_STATS, defense: 2 },
+        defeated: false,
+      },
     ]),
     "t",
   );
@@ -106,9 +124,27 @@ test("battles without a level (saved before levels, or base-rule tests) give no 
 test("a newly summoned reserve brings their own level to the fight", () => {
   const combat = createCombat(PROFESSOR, () => 0, 40);
   const ready = prepareSummons(combat, [
-    { id: "low", name: "Low", level: 10, stats: FIGHTER_STATS, defeated: false },
-    { id: "high", name: "High", level: 60, stats: FIGHTER_STATS, defeated: false },
+    {
+      id: "low",
+      name: "Low",
+      level: 10,
+      stats: FIGHTER_STATS,
+      defeated: false,
+    },
+    {
+      id: "high",
+      name: "High",
+      level: 60,
+      stats: FIGHTER_STATS,
+      defeated: false,
+    },
   ]);
-  assert.deepEqual(levelBonuses(summon(ready, "low")), { player: 100, enemy: 250 });
-  assert.deepEqual(levelBonuses(summon(ready, "high")), { player: 200, enemy: 100 });
+  assert.deepEqual(levelBonuses(summon(ready, "low")), {
+    player: 100,
+    enemy: 250,
+  });
+  assert.deepEqual(levelBonuses(summon(ready, "high")), {
+    player: 200,
+    enemy: 100,
+  });
 });

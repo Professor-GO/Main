@@ -19,7 +19,7 @@ export type ServerConfig = {
  * Reads and validates the existing server settings without opening storage.
  * @param root Repository root used for relative database overrides.
  * @param env Environment settings supplied by the composition root.
- * @returns Validated startup settings with the legacy database default.
+ * @returns Validated startup settings with the server storage database default.
  */
 export function readConfig(root: string, env: NodeJS.ProcessEnv): ServerConfig {
     const environment = env.APP_ENV ?? "development";
@@ -39,7 +39,7 @@ export function readConfig(root: string, env: NodeJS.ProcessEnv): ServerConfig {
     return {
         environment, production, frontendHost, frontendPort, backendHost, backendPort,
         backendConnectHost, secret, baseURL,
-        databasePath: resolve(root, env.DATABASE_PATH ?? "BackEnd/Persistence Layer/data/game.sqlite"),
+        databasePath: resolve(root, env.DATABASE_PATH ?? "src/server/storage/data/game.sqlite"),
     };
 }
 

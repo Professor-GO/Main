@@ -7,14 +7,14 @@ import {
   resolveQuiz,
   strike,
   WILD_LEVELS,
-} from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
+} from "../domain/encounterBattle.ts";
 import {
   changeBattle,
   installQuiz,
   publicBattle,
   readBattle,
   saveBattle,
-} from "../../../../../BackEnd/Persistence Layer/encounterBattles.ts";
+} from "../infrastructure/sqliteEncounterBattles.ts";
 import type { AppContext } from "../../../http/apiApp.ts";
 import {
   allowMethods,
@@ -32,7 +32,7 @@ import {
   inventoryFor,
 } from "../../recruitment/application/recruitment.ts";
 import { createCodingQuestion } from "../../questions/infrastructure/gemini.ts";
-import type { Battle } from "../../../../../BackEnd/Persistence Layer/encounterBattles.ts";
+import type { Battle } from "../infrastructure/sqliteEncounterBattles.ts";
 
 const uuid = (value: unknown): value is string =>
   typeof value === "string" &&

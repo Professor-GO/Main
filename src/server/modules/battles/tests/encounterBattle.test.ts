@@ -6,8 +6,8 @@ import {
   enemyStrike,
   resolveQuiz,
   strike,
-} from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
-import type { CombatState } from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
+} from "../domain/encounterBattle.ts";
+import type { CombatState } from "../domain/encounterBattle.ts";
 
 // A roll of 0 puts the checkpoints at the bottom of each range. With 100 max health
 // that is 67, 34, and 10 health.

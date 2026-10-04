@@ -482,7 +482,7 @@ export const SPAWNING = {
   // They appear at least this far from the player, in tiles.
   minDistance: 10,
   // Each one rolls a level from minLevel to maxLevel, every level equally likely. The server
-  // checks the same range (WILD_LEVELS in BackEnd/Game Engine/encounterBattle.ts).
+  // checks the same range (WILD_LEVELS in src/server/modules/battles/domain/encounterBattle.ts).
   minLevel: 10,
   maxLevel: 100,
 };

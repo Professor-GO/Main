@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import {
   createEnemyAi,
   stepEnemyAi,
-} from "../../../../../BackEnd/Game Engine/enemyProfessorAi.ts";
+} from "../../../../shared/battle/enemyProfessorAi.ts";
 import type {
   AiFighter,
   EnemyAiObservation,
-} from "../../../../../BackEnd/Game Engine/enemyProfessorAi.ts";
+} from "../../../../shared/battle/enemyProfessorAi.ts";
 
 /** A grounded fighter ready to act, in SVG arena units. */
 function fighter(x: number): AiFighter {

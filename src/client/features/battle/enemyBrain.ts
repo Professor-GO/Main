@@ -1,13 +1,13 @@
 /**
- * Connects the enemy professor AI (BackEnd/Game Engine/enemyProfessorAi.ts) to the arena: it
+ * Connects the shared enemy professor AI to the arena: it
  * describes the arena to the AI each frame and passes the AI's controls back to the arena.
  * Only call it while the fight is running, never during a quiz or while waiting on the server.
  */
 import {
   createEnemyAi,
   stepEnemyAi,
-} from "../../../../BackEnd/Game Engine/enemyProfessorAi.ts";
-import type { AiFighter } from "../../../../BackEnd/Game Engine/enemyProfessorAi.ts";
+} from "../../../shared/battle/enemyProfessorAi.ts";
+import type { AiFighter } from "../../../shared/battle/enemyProfessorAi.ts";
 import { ARENA, punchPhase } from "./arena.ts";
 import type { ArenaState, EnemyCommand, Fighter } from "./arena.ts";
 

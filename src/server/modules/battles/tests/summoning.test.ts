@@ -7,8 +7,8 @@ import {
   enemyStrike,
   strike,
   resolveQuiz,
-} from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
-import type { SummonFighter } from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
+} from "../domain/encounterBattle.ts";
+import type { SummonFighter } from "../domain/encounterBattle.ts";
 
 const fighters: SummonFighter[] = [
   {

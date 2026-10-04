@@ -12,15 +12,14 @@ export default tseslint.config(
       ".agent-teams/**",
       "context/**",
       "Assets/**",
-      "BackEnd/data/**",
-      "BackEnd/Persistence Layer/data/**",
+      "src/server/storage/data/**",
     ],
   },
   ...tseslint.configs.recommended,
   {
     files: [
       "src/server/**/*.ts",
-      "BackEnd/**/*.ts",
+      "src/shared/**/*.ts",
       "*.mjs",
       "scripts/**/*.mjs",
     ],

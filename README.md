@@ -33,7 +33,7 @@ Server and development launcher read `.env` from the repository root; existing p
 - `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`: session signing and public website URL. Production requires a real secret; Secure cookies require HTTPS.
 - `GEMINI_API_KEY`, `GEMINI_MODEL`: optional question generation settings. Empty API key uses a local fallback.
 
-The database default remains **`BackEnd/Persistence Layer/data/game.sqlite`**. Source relocation does not migrate or replace it. Both legacy data directories can contain real account data; never use them as test fixtures. Tests create disposable databases. Better Auth owns accounts, passwords, and sessions. Legacy `users`/`sessions` are preserved, and an old inventory referencing `users` is preserved as `inventory_legacy`, not migrated into new accounts.
+The database default is **`src/server/storage/data/game.sqlite`**. The existing database and backups were moved there unchanged when the remaining backend files were consolidated under `src/`. Keep this ignored directory private; tests create disposable databases. If your local `.env` still points to `BackEnd/Persistence Layer/data/game.sqlite`, update `DATABASE_PATH` to the new location. Better Auth owns accounts, passwords, and sessions. Legacy `users`/`sessions` are preserved, and an old inventory referencing `users` is preserved as `inventory_legacy`, not migrated into new accounts.
 
 Local account administration modifies the configured database:
 
@@ -50,8 +50,9 @@ Deactivation revokes sessions; reactivation requires fresh login.
 src/client/             React pages, typed API clients, question state, local CSS
 src/server/bootstrap/   Startup, validated configuration, built-asset loading
 src/server/http/        Express API composition, website proxy and security headers
-src/server/modules/     Accounts, recruitment and questions (current implementation)
-src/server/storage/     SQLite initialization and schema
+src/server/modules/     Accounts, recruitment, questions and battles
+src/server/storage/     SQLite initialization, schema and ignored data/backups
+src/shared/battle/      Pure enemy AI shared with the browser arena
 scripts/dev.mjs         Native Vite/API development lifecycle
 scripts/tests/          Disposable-database development proxy/cleanup checks
 dist/client/            Generated deployable client assets
@@ -62,9 +63,9 @@ This milestone delivers the runnable client/server framework and preserves exist
 
 ### Legacy cleanup
 
-The old `FrontEnd/` and `BackEnd/` source trees are no longer maintained or required to build the application. Backend code and tests live under `src/server/`; obsolete frontend code was removed after parity verification. `BackEndTest/auth.test.ts` is a compatibility entry point for the maintained authentication suite, so `node --test BackEndTest/auth.test.ts` still works. Historical implementations remain available in Git.
+The old `FrontEnd/` and `BackEnd/` folders have been removed. Backend code and tests live under `src/server/`, with browser-safe enemy AI in `src/shared/battle/`. `BackEndTest/auth.test.ts` remains a separate compatibility entry point for the maintained authentication suite, so `node --test BackEndTest/auth.test.ts` still works. Historical implementations remain available in Git.
 
-The `BackEnd/` name remains only in the backward-compatible default database location and security regression probes. Starting with the default database configuration may recreate its data directory; that is persistent storage, not a second backend implementation. Do not delete existing databases, legacy-table preservation logic, or private-path tests as obsolete code. Unused legacy dependencies, the old coverage command and the postinstall Git hook mutation have been removed; the maintained runners are Node's test runner and Vitest.
+The default storage path and local configuration now use `src/server/storage/data/`, so normal startup does not recreate `BackEnd/`. Old private paths remain in security regression probes alongside the new server/data paths. Existing databases, backups and legacy-table preservation logic remain intact. The maintained runners are Node's test runner and Vitest.
 
 ## Verification
 
@@ -135,7 +136,7 @@ The lobby's **Explore the campus** button opens a top-down open world, drawn on 
 - Scenery is generated from a fixed seed, so the map is the same on every visit. Blocking scenery stays off each screen's outer ring, so every screen can be crossed. Only a tree's trunk blocks the player; they can walk under its leaves, which then hide them.
 - Legendary professors (from `GET /api/gacha/pool`) appear at random away from the player and never at home, at most 3 at once. Walking up to one shows an encounter card with **Fight professor** and **Keep exploring**. Fighting pauses movement until the battle ends or the player runs away. Spawns are not saved or server-checked; battles grant no capture, inventory, or token rewards.
 
-Map mechanics live in `src/client/features/world/Game Mechanics/`: the rules (layout, walking, wrapping, collisions, spawns, encounters) in `world.ts` with tests in `tests/`, and the game loop in `game.ts`. Battle/health rules live in `BackEnd/Game Engine/encounterBattle.ts`, SQLite battle storage in `BackEnd/Persistence Layer/encounterBattles.ts`, and authenticated routes in `src/server/modules/battles/`. Drawing is in `features/world/renderer.ts`, and the page in `pages/WorldPage/`. Only the artwork imported by `features/world/art.ts` (`Assets/outdoor/` and the professors' front pictures) is published; the player and house are drawn in code as placeholders.
+Map mechanics live in `src/client/features/world/Game Mechanics/`: the rules (layout, walking, wrapping, collisions, spawns, encounters) in `world.ts` with tests in `tests/`, and the game loop in `game.ts`. Battle/health rules live in `src/server/modules/battles/domain/encounterBattle.ts`, SQLite battle storage in `src/server/modules/battles/infrastructure/sqliteEncounterBattles.ts`, and authenticated routes in that module's `http/` folder. The pure enemy AI is shared from `src/shared/battle/enemyProfessorAi.ts`. Drawing is in `features/world/renderer.ts`, and the page in `pages/WorldPage/`. Only the artwork imported by `features/world/art.ts` (`Assets/outdoor/` and the professors' front pictures) is published; the player and house are drawn in code as placeholders.
 
 ### Wild battle quizzes
 
