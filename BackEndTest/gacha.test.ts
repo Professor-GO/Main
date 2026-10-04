@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import type { DatabaseSync } from "node:sqlite";
-import { openDatabase, userById } from "../BackEnd/database.ts";
+import { DatabaseSync } from "node:sqlite";
+import { openDatabase } from "../BackEnd/Persistence Layer/database.ts";
+import { createAuth, hiddenEmail } from "../BackEnd/Persistence Layer/auth.ts";
 import {
     EPIC_CHANCE, GACHA_CAGES, GACHA_POOL, LEGENDARY_CHANCE, PULL_COST,
     buildPool, cagesFor, inventoryFor, legendaryChance, levelUpProfessor, pickPrize, pityFor, pullGacha, pullOdds, rarityFor,
@@ -31,7 +32,7 @@ function assertClose(actual: number, expected: number): void {
  * @param userId - The id of the player who is pulling.
  * @returns The pull's result, which is always a professor.
  */
-function pullLegendary(db: DatabaseSync, userId: number) {
+function pullLegendary(db: DatabaseSync, userId: string) {
     const pull = pullGacha(db, userId, () => 0);
     assert.ok(pull?.kind === "professor");
     return pull;
@@ -124,10 +125,47 @@ test("invalid roster entries are rejected", () => {
     assert.throws(() => buildPool([valid, entry("legendary", 5)]), /Epic/);
 });
 
-test("pulling spends tokens and saves the professor or cage, or changes nothing when unaffordable", () => {
+// Settings for createAuth() in tests. The in-memory databases never leave the test.
+const TEST_AUTH = { baseURL: "http://127.0.0.1", secret: "test-secret-for-gacha-tests-only-0123456789", production: false };
+
+/**
+ * Opens an in-memory database with the game tables and Better Auth's account tables.
+ * @returns A promise for the open database. Call close() on it when finished.
+ */
+async function testDatabase(): Promise<DatabaseSync> {
     const db = openDatabase(":memory:");
-    const userId = Number(db.prepare("INSERT INTO users (username, password_hash, tokens) VALUES ('Puller', 'scrypt:aa:bb', ?)")
-        .run(PULL_COST * 2 + 5).lastInsertRowid);
+    await createAuth(db, TEST_AUTH);
+    return db;
+}
+
+/**
+ * Adds a player straight to Better Auth's user table, without a password.
+ * @param db - The test database.
+ * @param name - The player's username.
+ * @param tokens - The player's token balance.
+ * @returns The player's user id.
+ */
+function addPlayer(db: DatabaseSync, name: string, tokens: number): string {
+    const id = `player-${name.toLowerCase()}`;
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt, username, displayUsername, tokens, isActive)
+        VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, 1)`).run(id, name, hiddenEmail(name), now, now, name.toLowerCase(), name, tokens);
+    return id;
+}
+
+/**
+ * Reads a player's token balance.
+ * @param db - The test database.
+ * @param userId - The player's user id.
+ * @returns The balance.
+ */
+function tokensOf(db: DatabaseSync, userId: string): number {
+    return (db.prepare('SELECT tokens FROM "user" WHERE id = ?').get(userId) as { tokens: number }).tokens;
+}
+
+test("pulling spends tokens and saves the professor or cage, or changes nothing when unaffordable", async () => {
+    const db = await testDatabase();
+    const userId = addPlayer(db, "Puller", PULL_COST * 2 + 5);
     // Returns the ids of the professors in the test player's inventory, in the order they were first pulled.
     const owned = () => inventoryFor(db, userId).map((item) => item.professor.id);
     assert.deepEqual(pityFor(db, userId), { legendary: 0, epic: 0 });
@@ -147,19 +185,28 @@ test("pulling spends tokens and saves the professor or cage, or changes nothing 
     assert.deepEqual(second.pity, { legendary: 1, epic: 2 });
 
     assert.equal(pullGacha(db, userId), undefined);
-    assert.equal(userById(db, userId)?.tokens, 5);
+    assert.equal(tokensOf(db, userId), 5);
     assert.deepEqual(owned(), [FIRST_LEGENDARY.id]);
     assert.deepEqual(cagesFor(db, userId), [{ cage: GACHA_CAGES[2], quantity: 1 }]);
     assert.deepEqual(pityFor(db, userId), { legendary: 1, epic: 2 });
     assert.deepEqual(inventoryFor(db, userId)[0], first.item);
     assert.equal(db.isTransaction, false);
+    assert.equal(pullGacha(db, "no-such-player"), undefined);
     db.close();
 });
 
-test("pity is saved between pulls and guarantees an Epic every 10 pulls and a Legendary by pull 80", () => {
-    const db = openDatabase(":memory:");
-    const userId = Number(db.prepare("INSERT INTO users (username, password_hash, tokens) VALUES ('Unlucky', 'scrypt:aa:bb', ?)")
-        .run(PULL_COST * 80).lastInsertRowid);
+test("token balances can never go negative", async () => {
+    const db = await testDatabase();
+    const userId = addPlayer(db, "Saver", 3);
+    assert.throws(() => db.prepare('UPDATE "user" SET tokens = -1 WHERE id = ?').run(userId), /tokens cannot be negative/);
+    assert.throws(() => addPlayer(db, "Debtor", -5), /tokens cannot be negative/);
+    assert.equal(tokensOf(db, userId), 3);
+    db.close();
+});
+
+test("pity is saved between pulls and guarantees an Epic every 10 pulls and a Legendary by pull 80", async () => {
+    const db = await testDatabase();
+    const userId = addPlayer(db, "Unlucky", PULL_COST * 80);
     // The highest roll always draws the last prize that is still possible: a bronze cage, or a professor once pity rules cages out.
     const prizes = Array.from({ length: 80 }, () => {
         const pull = pullGacha(db, userId, () => 0.999999);
@@ -173,14 +220,13 @@ test("pity is saved between pulls and guarantees an Epic every 10 pulls and a Le
     assert.equal(pullsOf("bronze-cage").length, 71);
     assert.deepEqual(cagesFor(db, userId), [{ cage: GACHA_CAGES[2], quantity: 71 }]);
     assert.deepEqual(pityFor(db, userId), { legendary: 0, epic: 1 });
-    assert.equal(userById(db, userId)?.tokens, 0);
+    assert.equal(tokensOf(db, userId), 0);
     db.close();
 });
 
-test("pulling a professor the player already owns adds a copy", () => {
-    const db = openDatabase(":memory:");
-    const userId = Number(db.prepare("INSERT INTO users (username, password_hash, tokens) VALUES ('Collector', 'scrypt:aa:bb', ?)")
-        .run(PULL_COST * 3).lastInsertRowid);
+test("pulling a professor the player already owns adds a copy", async () => {
+    const db = await testDatabase();
+    const userId = addPlayer(db, "Collector", PULL_COST * 3);
     const pulls = [0, 1, 2].map(() => pullLegendary(db, userId));
     assert.deepEqual(pulls.map((pull) => [pull.isNew, pull.item.copies, pull.item.level]), [[true, 1, 1], [false, 2, 1], [false, 3, 1]]);
     assert.equal(pulls[2].item.obtainedAt, pulls[0].item.obtainedAt);
@@ -189,12 +235,11 @@ test("pulling a professor the player already owns adds a copy", () => {
     db.close();
 });
 
-test("levelling up spends copiesToLevelUp copies and always keeps one", () => {
-    const db = openDatabase(":memory:");
+test("levelling up spends copiesToLevelUp copies and always keeps one", async () => {
+    const db = await testDatabase();
     const professor = FIRST_LEGENDARY;
     const needed = professor.copiesToLevelUp;
-    const userId = Number(db.prepare("INSERT INTO users (username, password_hash, tokens) VALUES ('Leveler', 'scrypt:aa:bb', ?)")
-        .run(PULL_COST * (2 * needed + 1)).lastInsertRowid);
+    const userId = addPlayer(db, "Leveler", PULL_COST * (2 * needed + 1));
 
     assert.equal(levelUpProfessor(db, userId, professor.id), undefined);
     assert.equal(levelUpProfessor(db, userId, "no-such-professor"), undefined);
@@ -215,51 +260,55 @@ test("levelling up spends copiesToLevelUp copies and always keeps one", () => {
     db.close();
 });
 
-test("each player's copies and levels are separate, and professors no longer in the pool are left out", () => {
-    const db = openDatabase(":memory:");
-    const insert = db.prepare("INSERT INTO users (username, password_hash, tokens) VALUES (?, 'scrypt:aa:bb', ?)");
-    const alice = Number(insert.run("Alice", PULL_COST * 2).lastInsertRowid);
-    const bob = Number(insert.run("Bob", PULL_COST).lastInsertRowid);
+test("each player's copies and levels are separate, and professors no longer in the pool are left out", async () => {
+    const db = await testDatabase();
+    const alice = addPlayer(db, "Alice", PULL_COST * 2);
+    const bob = addPlayer(db, "Bob", PULL_COST);
     pullLegendary(db, alice);
     pullLegendary(db, alice);
     assert.equal(pullLegendary(db, bob).isNew, true);
     db.prepare("INSERT INTO inventory (user_id, professor_id) VALUES (?, 'retired-professor')").run(bob);
     assert.deepEqual(inventoryFor(db, alice).map((item) => item.copies), [2]);
     assert.deepEqual(inventoryFor(db, bob).map((item) => [item.professor.id, item.copies]), [[FIRST_LEGENDARY.id, 1]]);
+    // Removing an account removes its inventory, cages, and pity too.
+    db.prepare('DELETE FROM "user" WHERE id = ?').run(bob);
+    assert.deepEqual(inventoryFor(db, bob), []);
+    assert.deepEqual(pityFor(db, bob), { legendary: 0, epic: 0 });
     db.close();
 });
 
-test("professors in the older user_professors table move into the inventory, with duplicates counted as copies", async (t) => {
+test("an inventory from before Better Auth is set aside, and the old accounts are left untouched", async (t) => {
     const directory = await mkdtemp(join(tmpdir(), "professor-go-test-"));
     t.after(async () => {
         assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + sep));
         await rm(directory, { recursive: true, force: true });
     });
     const databasePath = join(directory, "legacy.sqlite");
-    const legacy = openDatabase(databasePath);
+    const legacy = new DatabaseSync(databasePath);
     legacy.exec(`
-        DROP TABLE inventory;
-        CREATE TABLE user_professors (
+        CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL, password_hash TEXT NOT NULL, tokens INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE sessions (token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), expires_at INTEGER NOT NULL);
+        CREATE TABLE inventory (
             id INTEGER PRIMARY KEY,
             user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             professor_id TEXT NOT NULL,
-            pulled_at TEXT NOT NULL
+            level INTEGER NOT NULL DEFAULT 1,
+            copies INTEGER NOT NULL DEFAULT 1,
+            obtained_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            UNIQUE (user_id, professor_id)
         );
-        INSERT INTO users (username, password_hash) VALUES ('Veteran', 'scrypt:aa:bb');
-        INSERT INTO user_professors (user_id, professor_id, pulled_at) VALUES
-            (1, '${GACHA_POOL[1].id}', '2026-10-01T00:00:00.000Z'), (1, '${GACHA_POOL[2].id}', '2026-10-02T00:00:00.000Z'),
-            (1, '${GACHA_POOL[1].id}', '2026-10-03T00:00:00.000Z'), (1, '${GACHA_POOL[1].id}', '2026-10-04T00:00:00.000Z');
+        INSERT INTO users (username, password_hash, tokens) VALUES ('Veteran', 'scrypt:aa:bb', 30);
+        INSERT INTO inventory (user_id, professor_id, copies) VALUES (1, '${GACHA_POOL[1].id}', 3);
     `);
     legacy.close();
     for (let opening = 0; opening < 2; opening++) {
         const db = openDatabase(databasePath);
-        const inventory = inventoryFor(db, 1);
-        const oldTable = db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'user_professors'").get();
+        await createAuth(db, TEST_AUTH);
+        assert.deepEqual(db.prepare("SELECT professor_id, copies FROM inventory_legacy").all().map((row) => ({ ...row })), [{ professor_id: GACHA_POOL[1].id, copies: 3 }]);
+        assert.deepEqual(db.prepare("SELECT username, tokens FROM users").all().map((row) => ({ ...row })), [{ username: "Veteran", tokens: 30 }]);
+        assert.equal(db.prepare("SELECT COUNT(*) AS n FROM inventory").get()?.n, 0);
+        const userColumn = (db.prepare("PRAGMA table_info(inventory)").all() as { name: string; type: string }[]).find((column) => column.name === "user_id");
+        assert.equal(userColumn?.type, "TEXT");
         db.close();
-        assert.equal(oldTable, undefined);
-        assert.deepEqual(inventory.map((item) => [item.professor.id, item.copies, item.obtainedAt]), [
-            [GACHA_POOL[1].id, 3, "2026-10-01T00:00:00.000Z"],
-            [GACHA_POOL[2].id, 1, "2026-10-02T00:00:00.000Z"],
-        ]);
     }
 });

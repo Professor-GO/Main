@@ -5,15 +5,15 @@ const usernameInput = $("#username");
 const passwordInput = $("#password");
 const confirmInput = $("#confirm-password");
 const tabs = [$("#login-tab"), $("#signup-tab")];
-const questionButton = $("#question-button");
-const questionMeta = $("#question-meta");
-const questionBody = $("#question-body");
-const questionHint = $("#question-hint");
+const questionCard = $("#question-card");
+const questionChoices = $("#question-choices");
 const questionStatus = $("#question-status");
+const questionNext = $("#question-next");
 let mode = "login";
 let pending = false;
 let restoring = true;
 let questionPending = false;
+let answerPending = false;
 
 function showMessage(element, message = "") {
     element.textContent = message;
@@ -80,6 +80,7 @@ function showLobby(user, focus = true) {
     $("#account-status").textContent = user.isActive ? "Active" : "Inactive";
     $("#account-tokens").textContent = new Intl.NumberFormat().format(user.tokens);
     $("#auth-view").hidden = true;
+    $("#question-view").hidden = true;
     $("#lobby-view").hidden = false;
     showMessage($("#lobby-message"));
     $("#lobby-status").textContent = "";
@@ -87,7 +88,6 @@ function showLobby(user, focus = true) {
     resetPasswordVisibility();
     document.title = `${user.username} · Professor-Go`;
     if (focus) $("#lobby-title").focus();
-    void loadCodingQuestion();
 }
 
 function resetPasswordVisibility() {
@@ -97,35 +97,98 @@ function resetPasswordVisibility() {
     $("#toggle-password").setAttribute("aria-pressed", "false");
 }
 
-function setQuestionBusy(busy) {
-    questionPending = busy;
-    questionButton.disabled = busy;
-    questionButton.textContent = busy ? "Generating…" : "Generate question";
+// Shows the Get tokens page with a fresh question.
+function openQuestionPage() {
+    $("#lobby-view").hidden = true;
+    $("#question-view").hidden = false;
+    document.title = "Pop quiz · Professor-Go";
+    $("#question-title").focus();
+    void loadCodingQuestion();
 }
 
+// Goes back from the Get tokens page to the lobby.
+function closeQuestionPage() {
+    $("#question-view").hidden = true;
+    $("#lobby-view").hidden = false;
+    document.title = `${$("#player-name").textContent} · Professor-Go`;
+    $("#lobby-title").focus();
+}
+
+// Shows a question and its answer choices, labelled A, B, C, D.
 function renderQuestion(question) {
-    questionMeta.textContent = `${question.topic} · ${question.difficulty} · ${question.source === "gemini" ? "Gemini" : "Local fallback"}`;
-    questionBody.textContent = question.question;
-    if (question.hint) {
-        questionHint.textContent = `Hint: ${question.hint}`;
-        questionHint.hidden = false;
-    } else {
-        questionHint.hidden = true;
+    $("#question-meta").textContent = `${question.topic} · ${question.difficulty} · ${question.source === "gemini" ? "Gemini" : "Local fallback"}`;
+    $("#question-body").textContent = question.question;
+    questionChoices.replaceChildren(...question.choices.map((choice, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "choice-button";
+        const letter = document.createElement("span");
+        letter.className = "choice-letter";
+        letter.textContent = String.fromCharCode(65 + index);
+        const text = document.createElement("span");
+        text.className = "choice-text";
+        text.textContent = choice;
+        button.append(letter, text);
+        button.addEventListener("click", () => answerQuestion(question, index));
+        return button;
+    }));
+    $("#question-feedback").hidden = true;
+    questionCard.hidden = false;
+    questionStatus.textContent = question.message ?? "";
+}
+
+// Saves the answer on the server, then shows its result and the updated token balance.
+async function answerQuestion(question, chosen) {
+    if (answerPending) return;
+    answerPending = true;
+    const buttons = [...questionChoices.children];
+    buttons.forEach((button) => { button.disabled = true; });
+    $("#question-back").disabled = true;
+    questionStatus.textContent = "Checking your answer…";
+    try {
+        const result = await api("question/answer", { questionId: question.id, selectedIndex: chosen }, "/api");
+        buttons.forEach((button, index) => {
+            if (index === result.answerIndex) button.classList.add("is-correct");
+            else if (index === chosen) button.classList.add("is-wrong");
+        });
+        $("#question-result").textContent = result.correct
+            ? (result.tokensAwarded === 1 ? "Correct! +1 token." : "Correct! Your token was already awarded.")
+            : `Not quite. The answer is ${String.fromCharCode(65 + result.answerIndex)}. No tokens earned.`;
+        $("#account-tokens").textContent = new Intl.NumberFormat().format(result.tokens);
+        $("#question-explanation").textContent = result.explanation;
+        $("#question-explanation").hidden = !result.explanation;
+        $("#question-feedback").hidden = false;
+        questionStatus.textContent = `Your balance: ${new Intl.NumberFormat().format(result.tokens)} tokens.`;
+        questionNext.hidden = false;
+        questionNext.focus();
+    } catch (error) {
+        questionStatus.textContent = error.message;
+        if (!error.status || error.status >= 500) {
+            // Retry the same choice if the reply was lost; the server cannot award twice.
+            buttons[chosen].disabled = false;
+            questionStatus.textContent += " Select your answer again to retry.";
+        } else {
+            questionNext.hidden = false;
+        }
+    } finally {
+        answerPending = false;
+        $("#question-back").disabled = false;
     }
-    questionStatus.textContent = question.message ?? (question.source === "gemini" ? "Generated with Gemini." : "Showing a local fallback question.");
 }
 
 async function loadCodingQuestion() {
-    if (questionPending) return;
-    setQuestionBusy(true);
+    if (questionPending || answerPending) return;
+    questionPending = true;
+    questionCard.hidden = true;
+    questionNext.hidden = true;
     questionStatus.textContent = "Summoning a coding question…";
     try {
-        const result = await api("question", undefined, "/api");
-        renderQuestion(result);
+        renderQuestion(await api("question", undefined, "/api"));
     } catch (error) {
         questionStatus.textContent = error.message;
+        questionNext.hidden = false;
     } finally {
-        setQuestionBusy(false);
+        questionPending = false;
     }
 }
 
@@ -178,6 +241,9 @@ $("#recruit-button").addEventListener("click", () => {
 $("#battle-button").addEventListener("click", () => {
     $("#lobby-status").textContent = "The battle arena is still being built. Check back soon!";
 });
+$("#tokens-button").addEventListener("click", openQuestionPage);
+$("#question-back").addEventListener("click", closeQuestionPage);
+questionNext.addEventListener("click", () => { void loadCodingQuestion(); });
 
 $("#logout-button").addEventListener("click", async () => {
     const button = $("#logout-button");
@@ -196,8 +262,6 @@ $("#logout-button").addEventListener("click", async () => {
         button.disabled = false;
     }
 });
-
-questionButton.addEventListener("click", () => { void loadCodingQuestion(); });
 
 const dialog = $("#how-dialog");
 $("#how-to-play").addEventListener("click", () => dialog.showModal());

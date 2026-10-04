@@ -1,4 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
+import { inventoryRows, itemRows, pityRow, saveItemPull, savePull, spendCopies } from "../Persistence Layer/inventory.ts";
+import type { InventoryRow } from "../Persistence Layer/inventory.ts";
 import { DEPARTMENTS, PROFESSOR_POOL } from "./Professor Pool/professors.ts";
 import type { ProfessorEntry } from "./Professor Pool/professors.ts";
 
@@ -68,9 +70,6 @@ export type InventoryItem = {
 
 // One kind of cage a player owns, and how many of it they have.
 export type OwnedCage = { cage: Cage; quantity: number };
-
-// An inventory row as SQLite returns it.
-type InventoryRow = { professor_id: string; level: number; copies: number; obtained_at: string };
 
 /**
  * Decides a professor's rarity tier from their rating. Only Legendary and Epic
@@ -166,8 +165,19 @@ export function pullOdds(pity: Pity, pool: readonly Professor[] = GACHA_POOL): (
 
 /**
  * Draws one prize at random, using the odds from pullOdds() for the player's pity.
- * The pool is never used up: every pull draws from all of it again.
  * It only picks a prize; it does not spend tokens or save anything.
+ *
+ * How the draw works (weighted random selection, also called "roulette wheel" selection):
+ * picture the line from 0 to 1 cut into one segment per prize, in pullOdds() order, where
+ * each segment's length is that prize's chance. The chances add up to 1, so the
+ * segments cover the whole line. A random number from 0 to 1 lands in exactly one
+ * segment, and that prize is drawn. A prize with a bigger chance has a longer
+ * segment, so random numbers land in it more often.
+ *
+ * Every draw is "with replacement": the pool is never used up, so every prize can
+ * be drawn on every pull, no matter what was drawn before. That is how a player ends
+ * up with duplicate copies of a professor.
+ *
  * @param pity - The player's pulls in a row without a Legendary and without an Epic.
  * @param random - Returns a number from 0 (inclusive) to 1 (exclusive). Defaults to
  * Math.random; tests pass a fixed value to get a predictable prize.
@@ -176,12 +186,16 @@ export function pullOdds(pity: Pity, pool: readonly Professor[] = GACHA_POOL): (
  */
 export function pickPrize(pity: Pity, random: () => number = Math.random, pool: readonly Professor[] = GACHA_POOL): Prize {
     const odds = pullOdds(pity, pool).filter((prize) => prize.chance > 0);
+    // Where the random number lands on the 0-to-1 line.
     let roll = random();
     for (const prize of odds) {
+        // Step past this prize's segment. Only the local `roll` changes; the pool does not.
         roll -= prize.chance;
+        // Below 0 means the roll landed inside this prize's segment.
         if (roll < 0) return prize;
     }
-    // Floating-point rounding can leave a tiny remainder after the last prize.
+    // Floating-point rounding can make the chances add up to a hair under 1, leaving a
+    // tiny remainder after the last prize. Such a roll belongs in the last segment.
     return odds[odds.length - 1];
 }
 
@@ -203,10 +217,8 @@ function toInventoryItem(row: InventoryRow): InventoryItem | undefined {
  * @returns The player's inventory items, oldest first. Professors that are no
  * longer in the pool are left out.
  */
-export function inventoryFor(db: DatabaseSync, userId: number): InventoryItem[] {
-    const rows = db.prepare("SELECT professor_id, level, copies, obtained_at FROM inventory WHERE user_id = ? ORDER BY id")
-        .all(userId) as InventoryRow[];
-    return rows.map(toInventoryItem).filter((item) => item !== undefined);
+export function inventoryFor(db: DatabaseSync, userId: string): InventoryItem[] {
+    return inventoryRows(db, userId).map(toInventoryItem).filter((item) => item !== undefined);
 }
 
 /**
@@ -215,9 +227,8 @@ export function inventoryFor(db: DatabaseSync, userId: number): InventoryItem[] 
  * @param userId - The id of the player whose cages to list.
  * @returns Each kind of cage the player has at least one of, in GACHA_CAGES order.
  */
-export function cagesFor(db: DatabaseSync, userId: number): OwnedCage[] {
-    const rows = db.prepare("SELECT item_id, quantity FROM items WHERE user_id = ? AND quantity > 0")
-        .all(userId) as { item_id: string; quantity: number }[];
+export function cagesFor(db: DatabaseSync, userId: string): OwnedCage[] {
+    const rows = itemRows(db, userId);
     return GACHA_CAGES.flatMap((cage) => {
         const row = rows.find((candidate) => candidate.item_id === cage.id);
         return row ? [{ cage, quantity: row.quantity }] : [];
@@ -230,10 +241,9 @@ export function cagesFor(db: DatabaseSync, userId: number): OwnedCage[] {
  * @param userId - The id of the player.
  * @returns The player's pity, which is 0 for both until their first pull.
  */
-export function pityFor(db: DatabaseSync, userId: number): Pity {
-    const row = db.prepare("SELECT legendary_pity, epic_pity FROM gacha_pity WHERE user_id = ?")
-        .get(userId) as { legendary_pity: number; epic_pity: number } | undefined;
-    return { legendary: row?.legendary_pity ?? 0, epic: row?.epic_pity ?? 0 };
+export function pityFor(db: DatabaseSync, userId: string): Pity {
+    const row = pityRow(db, userId);
+    return { legendary: row.legendary_pity, epic: row.epic_pity };
 }
 
 /**
@@ -241,7 +251,7 @@ export function pityFor(db: DatabaseSync, userId: number): Pity {
  * player's pity. A professor the player does not own yet joins their inventory at
  * level 1 with 1 copy; a professor they already own gains another copy instead. A cage
  * adds 1 to the player's count of that cage. Pulling a Legendary or an Epic resets that
- * rarity's pity, and every other pull adds 1 to it. All of this happens in one
+ * rarity's pity, and every other pull adds 1 to it. All of this is saved in one
  * transaction, so tokens are never spent without the prize being saved.
  * @param db - The open game database.
  * @param userId - The id of the player who is pulling.
@@ -251,46 +261,25 @@ export function pityFor(db: DatabaseSync, userId: number): Pity {
  * (`isNew`); for a cage, the cage and how many of it the player now has. Returns
  * undefined, with nothing changed, if the player has fewer than PULL_COST tokens.
  */
-export function pullGacha(db: DatabaseSync, userId: number, random: () => number = Math.random):
+export function pullGacha(db: DatabaseSync, userId: string, random: () => number = Math.random):
     { tokens: number; pity: Pity } & ({ kind: "professor"; item: InventoryItem; isNew: boolean } | ({ kind: "cage" } & OwnedCage)) | undefined {
-    db.exec("BEGIN IMMEDIATE");
-    try {
-        const balance = db.prepare("UPDATE users SET tokens = tokens - ? WHERE id = ? AND tokens >= ? RETURNING tokens")
-            .get(PULL_COST, userId, PULL_COST) as { tokens: number } | undefined;
-        if (!balance) {
-            db.exec("ROLLBACK");
-            return undefined;
-        }
-        const before = pityFor(db, userId);
-        const prize = pickPrize(before, random);
-        const rarity = prize.kind === "professor" ? prize.professor.rarity : undefined;
-        const pity = { legendary: rarity === "Legendary" ? 0 : before.legendary + 1, epic: rarity === "Epic" ? 0 : before.epic + 1 };
-        db.prepare(`
-            INSERT INTO gacha_pity (user_id, legendary_pity, epic_pity) VALUES (?, ?, ?)
-            ON CONFLICT (user_id) DO UPDATE SET legendary_pity = excluded.legendary_pity, epic_pity = excluded.epic_pity
-        `).run(userId, pity.legendary, pity.epic);
-        if (prize.kind === "cage") {
-            const owned = db.prepare(`
-                INSERT INTO items (user_id, item_id) VALUES (?, ?)
-                ON CONFLICT (user_id, item_id) DO UPDATE SET quantity = quantity + 1
-                RETURNING quantity
-            `).get(userId, prize.cage.id) as { quantity: number };
-            db.exec("COMMIT");
-            return { kind: "cage", cage: prize.cage, quantity: owned.quantity, tokens: balance.tokens, pity };
-        }
-        const professor = prize.professor;
-        const row = db.prepare(`
-            INSERT INTO inventory (user_id, professor_id) VALUES (?, ?)
-            ON CONFLICT (user_id, professor_id) DO UPDATE SET copies = copies + 1
-            RETURNING professor_id, level, copies, obtained_at
-        `).get(userId, professor.id) as InventoryRow;
-        db.exec("COMMIT");
-        // New professors start with 1 copy, and a duplicate always brings the count to at least 2.
-        return { kind: "professor", item: { level: row.level, copies: row.copies, obtainedAt: row.obtained_at, professor }, isNew: row.copies === 1, tokens: balance.tokens, pity };
-    } catch (error) {
-        if (db.isTransaction) db.exec("ROLLBACK");
-        throw error;
+    const before = pityFor(db, userId);
+    // Draw from the whole pool every time (with replacement), so a professor the player
+    // already owns can be drawn again. The persistence layer saves that as an extra copy.
+    const prize = pickPrize(before, random);
+    const rarity = prize.kind === "professor" ? prize.professor.rarity : undefined;
+    const pity = { legendary: rarity === "Legendary" ? 0 : before.legendary + 1, epic: rarity === "Epic" ? 0 : before.epic + 1 };
+    const pityToSave = { legendary_pity: pity.legendary, epic_pity: pity.epic };
+    if (prize.kind === "cage") {
+        const saved = saveItemPull(db, userId, prize.cage.id, PULL_COST, pityToSave);
+        return saved && { kind: "cage", cage: prize.cage, quantity: saved.quantity, tokens: saved.tokens, pity };
     }
+    const professor = prize.professor;
+    const saved = savePull(db, userId, professor.id, PULL_COST, pityToSave);
+    if (!saved) return undefined;
+    const { row, tokens } = saved;
+    // New professors start with 1 copy, and a duplicate always brings the count to at least 2.
+    return { kind: "professor", item: { level: row.level, copies: row.copies, obtainedAt: row.obtained_at, professor }, isNew: row.copies === 1, tokens, pity };
 }
 
 /**
@@ -304,16 +293,11 @@ export function pullGacha(db: DatabaseSync, userId: number, random: () => number
  * false, with nothing changed, if the player does not have enough copies. Returns
  * undefined if the player does not own that professor.
  */
-export function levelUpProfessor(db: DatabaseSync, userId: number, professorId: string): { item: InventoryItem; levelledUp: boolean } | undefined {
+export function levelUpProfessor(db: DatabaseSync, userId: string, professorId: string): { item: InventoryItem; levelledUp: boolean } | undefined {
     const professor = GACHA_POOL.find((candidate) => candidate.id === professorId);
     if (!professor) return undefined;
-    const levelled = db.prepare(`
-        UPDATE inventory SET level = level + 1, copies = copies - ?
-        WHERE user_id = ? AND professor_id = ? AND copies > ?
-        RETURNING professor_id, level, copies, obtained_at
-    `).get(professor.copiesToLevelUp, userId, professorId, professor.copiesToLevelUp) as InventoryRow | undefined;
-    if (levelled) return { item: { level: levelled.level, copies: levelled.copies, obtainedAt: levelled.obtained_at, professor }, levelledUp: true };
-    const current = db.prepare("SELECT professor_id, level, copies, obtained_at FROM inventory WHERE user_id = ? AND professor_id = ?")
-        .get(userId, professorId) as InventoryRow | undefined;
-    return current && { item: { level: current.level, copies: current.copies, obtainedAt: current.obtained_at, professor }, levelledUp: false };
+    const saved = spendCopies(db, userId, professorId, professor.copiesToLevelUp);
+    if (!saved) return undefined;
+    const { row, levelledUp } = saved;
+    return { item: { level: row.level, copies: row.copies, obtainedAt: row.obtained_at, professor }, levelledUp };
 }
