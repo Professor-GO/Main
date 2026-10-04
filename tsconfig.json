@@ -11,7 +11,9 @@
 		"types": ["node"]
 	},
 	"include": [
-		"src/server/**/*.ts"
+		"vite.config.ts",
+		"BackEnd/**/*.ts",
+		"BackEndTest/**/*.ts"
 	],
 	"exclude": [
 		"node_modules"
