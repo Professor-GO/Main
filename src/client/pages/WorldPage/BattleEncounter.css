@@ -215,5 +215,7 @@
   }
 }
 @media (pointer: coarse) {
-  .battle-attack-key { display: none; }
+  .battle-attack-key {
+    display: none;
+  }
 }
