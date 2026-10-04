@@ -134,7 +134,7 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   assert.equal("explanation" in first.data.question!, false);
   const quiz = readBattle(db, account.user.id, id).quiz!;
   assert.ok(
-    quiz.expiresAt > Date.now() && quiz.expiresAt <= Date.now() + 10_000,
+    quiz.expiresAt > Date.now() && quiz.expiresAt <= Date.now() + 30_000,
   );
   const answer = {
     actionId: randomUUID(),
@@ -183,14 +183,18 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   reply = await call(`battle/${id}/action`, lateAnswer);
   assert.equal(reply.data.feedback?.correct, false);
   assert.equal(reply.data.feedback?.timedOut, true);
-  const quizDamage = Math.floor((expired.combat.playerHealth * 80) / 100);
-  assert.equal(reply.data.feedback?.playerDamage, quizDamage);
+  const minDamage = Math.min(Math.floor((expired.combat.playerHealth * 5) / 100), 15);
+  const maxDamage = Math.min(Math.floor((expired.combat.playerHealth * 12) / 100), 15);
+  assert.ok(
+    reply.data.feedback!.playerDamage >= minDamage &&
+      reply.data.feedback!.playerDamage <= maxDamage,
+  );
   assert.equal(
     reply.data.playerHealth,
     Math.max(
       0,
       expired.combat.playerHealth -
-        quizDamage -
+        reply.data.feedback!.playerDamage -
         (reply.data.status === "question" || reply.data.status === "won"
           ? 0
           : Math.floor(expired.combat.attack / 20)),
@@ -202,12 +206,12 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   );
   const lostHp = expired.combat.maxHealth - expired.combat.health;
   assert.ok(
-    reply.data.feedback!.healingPercent >= 50 &&
-      reply.data.feedback!.healingPercent <= 80,
+    reply.data.feedback!.healingPercent >= 10 &&
+      reply.data.feedback!.healingPercent <= 20,
   );
   assert.equal(
     reply.data.feedback!.healed,
-    Math.floor((lostHp * reply.data.feedback!.healingPercent) / 100),
+    Math.floor((expired.combat.maxHealth * reply.data.feedback!.healingPercent) / 100),
   );
 
   while (reply.data.status === "fighting")
@@ -226,9 +230,17 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   reply = await call(`battle/${id}`);
   assert.equal(reply.data.feedback?.timedOut, true);
   assert.equal(reply.data.eventsTriggered, 3);
-  assert.equal(
-    reply.data.feedback?.playerDamage,
-    Math.floor((final.combat.playerHealth * 80) / 100),
+  const minFinalDamage = Math.min(
+    Math.floor((final.combat.playerHealth * 5) / 100),
+    15,
+  );
+  const maxFinalDamage = Math.min(
+    Math.floor((final.combat.playerHealth * 12) / 100),
+    15,
+  );
+  assert.ok(
+    reply.data.feedback!.playerDamage >= minFinalDamage &&
+      reply.data.feedback!.playerDamage <= maxFinalDamage,
   );
   const health = reply.data.health;
   const playerHealth = reply.data.playerHealth;

@@ -26,12 +26,13 @@ import {
 import { GACHA_POOL } from "../../recruitment/application/recruitment.ts";
 import { createCodingQuestion } from "../../questions/infrastructure/gemini.ts";
 import type { Battle } from "../../../../../BackEnd/Persistence Layer/encounterBattles.ts";
+import { STUDENT_STATS } from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
 
 const uuid = (value: unknown): value is string =>
   typeof value === "string" &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
 
-/** Resolves a private question, including the server-enforced ten-second deadline. */
+/** Resolves a private question, including the server-enforced 60-second deadline. */
 function answerBattle(battle: Battle, selectedIndex: number | null): Battle {
   if (battle.combat.status !== "question" || !battle.quiz)
     throw httpError(409, "There is no question to answer.");
@@ -99,6 +100,7 @@ export function battleRoutes({ db, auth }: AppContext) {
       );
       if (!professor)
         throw httpError(400, "This professor cannot appear in the overworld.");
+      const playerStats = STUDENT_STATS;
       response.json(
         publicBattle(
           saveBattle(db, user.id, {
@@ -106,7 +108,7 @@ export function battleRoutes({ db, auth }: AppContext) {
             professorId: professor.id,
             professorName: professor.name,
             version: 0,
-            combat: createCombat(professor.stats),
+            combat: createCombat(professor.stats, undefined, playerStats),
             quiz: null,
             feedback: null,
           }),
@@ -140,7 +142,7 @@ export function battleRoutes({ db, auth }: AppContext) {
             installQuiz(db, user.id, battle, {
               ...question,
               id: randomUUID(),
-              expiresAt: Date.now() + 10_000,
+              expiresAt: Date.now() + 30_000,
             });
           })();
           generating.set(key, pending);

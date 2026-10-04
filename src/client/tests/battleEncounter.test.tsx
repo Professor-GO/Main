@@ -37,7 +37,7 @@ const question = () => ({
   difficulty: "easy",
   question: "How many elements are in [1, 2, 3]?",
   choices: ["3", "2", "1", "4"],
-  expiresAt: Date.now() + 10_000,
+  expiresAt: Date.now() + 30_000,
 });
 const reply = (data: BattleView) => Response.json(data);
 
@@ -89,8 +89,8 @@ test("a fight pauses for a generated question, then a wrong answer heals the pro
       answerIndex: 0,
       explanation: "The array contains three elements.",
       healed: 9,
-      healingPercent: 60,
-      playerDamage: 80,
+      healingPercent: 18,
+      playerDamage: 8,
     },
   };
   const fetcher = vi
@@ -109,11 +109,11 @@ test("a fight pauses for a generated question, then a wrong answer heals the pro
   fireEvent.click(attack);
   await screen.findByText(ready.question!.question);
   expect(attack).toBeDisabled();
-  expect(screen.getByText("10s left")).toBeVisible();
+  expect(screen.getByText("30s left")).toBeVisible();
   expect(screen.getByRole("heading", { name: "Pop quiz 1 / 3" })).toHaveFocus();
   fireEvent.click(screen.getByRole("button", { name: "B. 2" }));
   await screen.findByText(/recovered 9 HP/);
-  expect(screen.getByText(/You lost 80 HP/)).toBeVisible();
+  expect(screen.getByText(/You lost 8 HP/)).toBeVisible();
   expect(
     screen.queryByRole("group", { name: "Answer choices" }),
   ).not.toBeInTheDocument();
@@ -128,7 +128,7 @@ test("a fight pauses for a generated question, then a wrong answer heals the pro
   });
 });
 
-test("ten seconds elapsing submits one timeout and shows the healing result", async () => {
+test("thirty seconds elapsing submits one timeout and shows the healing result", async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-10-04T12:00:00Z"));
   const ready: BattleView = {
@@ -156,8 +156,8 @@ test("ten seconds elapsing submits one timeout and shows the healing result", as
           answerIndex: 0,
           explanation: "Three elements.",
           healed: 7,
-          healingPercent: 50,
-          playerDamage: 80,
+          healingPercent: 14,
+          playerDamage: 8,
         },
       }),
     );
@@ -168,7 +168,7 @@ test("ten seconds elapsing submits one timeout and shows the healing result", as
   });
   expect(screen.getByText(ready.question!.question)).toBeVisible();
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(9_900);
+    await vi.advanceTimersByTimeAsync(29_900);
   });
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(screen.getByText("1s left")).toBeVisible();
@@ -176,7 +176,7 @@ test("ten seconds elapsing submits one timeout and shows the healing result", as
     await vi.advanceTimersByTimeAsync(100);
   });
   expect(screen.getByText(/Time’s up!.*recovered 7 HP/)).toBeVisible();
-  expect(screen.getByText(/You lost 80 HP/)).toBeVisible();
+  expect(screen.getByText(/You lost 8 HP/)).toBeVisible();
   expect(fetcher).toHaveBeenCalledTimes(2);
   expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({
     kind: "timeout",

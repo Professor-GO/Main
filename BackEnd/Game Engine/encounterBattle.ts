@@ -5,8 +5,11 @@ export type CombatState = {
   maxHealth: number;
   health: number;
   playerHealth: number;
+  playerMaxHealth: number;
   attack: number;
   defense: number;
+  playerAttack: number;
+  playerDefense: number;
   checkpoints: number[];
   eventsTriggered: number;
   pendingEvent: number | null;
@@ -18,6 +21,7 @@ export type CombatState = {
 export function createCombat(
   stats: { health: number; attack: number; defense: number },
   random = Math.random,
+  playerStats = STUDENT_STATS,
 ): CombatState {
   // Whole HP checkpoints stay inside each range even when max HP is not divisible by the fractions.
   const checkpoint = (lower: number, upper: number) => {
@@ -28,9 +32,12 @@ export function createCombat(
   return {
     maxHealth: stats.health,
     health: stats.health,
-    playerHealth: STUDENT_STATS.health,
+    playerHealth: playerStats.health,
+    playerMaxHealth: playerStats.health,
     attack: stats.attack,
     defense: stats.defense,
+    playerAttack: playerStats.attack,
+    playerDefense: playerStats.defense,
     checkpoints: [
       checkpoint(2 / 3, 3 / 4),
       checkpoint(1 / 3, 3 / 5),
@@ -61,7 +68,7 @@ function applyDamage(state: CombatState, damage: number): void {
   else {
     state.playerHealth = Math.max(
       0,
-      state.playerHealth - Math.floor(state.attack / STUDENT_STATS.defense),
+      state.playerHealth - Math.floor(state.attack / state.playerDefense),
     );
     state.status = state.playerHealth === 0 ? "lost" : "fighting";
   }
@@ -72,11 +79,11 @@ export function strike(state: CombatState): CombatState {
   if (state.status !== "fighting")
     throw new Error("Finish the current question before attacking.");
   const next = structuredClone(state);
-  applyDamage(next, Math.floor(STUDENT_STATS.attack / state.defense));
+  applyDamage(next, Math.floor(state.playerAttack / state.defense));
   return next;
 }
 
-/** Wrong answers heal the professor and remove floor(80% of current player HP) before combat resumes. */
+/** Wrong answers lightly heal the professor and chip away at the player's HP before combat resumes. */
 export function resolveQuiz(
   state: CombatState,
   correct: boolean,
@@ -90,12 +97,13 @@ export function resolveQuiz(
   if (state.status !== "question")
     throw new Error("There is no question to answer.");
   const next = structuredClone(state);
-  const healingPercent = correct ? 0 : 50 + Math.floor(random() * 31);
-  const healed = Math.floor(
-    ((next.maxHealth - next.health) * healingPercent) / 100,
-  );
+  const healingPercent = correct ? 0 : 10 + Math.floor(random() * 11);
+  const healed = Math.floor((next.maxHealth * healingPercent) / 100);
   next.health = Math.min(next.maxHealth, next.health + healed);
-  const playerDamage = correct ? 0 : Math.floor((next.playerHealth * 80) / 100);
+  const playerDamagePercent = correct ? 0 : 5 + Math.floor(random() * 8);
+  const playerDamage = correct
+    ? 0
+    : Math.min(Math.floor((next.playerHealth * playerDamagePercent) / 100), 15);
   next.playerHealth = Math.max(0, next.playerHealth - playerDamage);
   next.pendingEvent = null;
   applyDamage(next, next.remainingDamage);

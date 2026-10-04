@@ -69,7 +69,13 @@ export default function BattleEncounter({
 
   useEffect(() => {
     mounted.current = true;
-    initial.current ??= startBattle(encounterId.current, professor.id);
+    if (!ownedFighters) return;
+    const chosenProfessor = playerId || ownedFighters[0]?.id || undefined;
+    initial.current ??= startBattle(
+      encounterId.current,
+      professor.id,
+      chosenProfessor,
+    );
     let active = true;
     initial.current
       .then((value) => {
@@ -83,7 +89,7 @@ export default function BattleEncounter({
       active = false;
       mounted.current = false;
     };
-  }, [professor.id]);
+  }, [professor.id, ownedFighters, playerId]);
 
   const waiting = battle?.status === "question" && !battle.question;
   useEffect(() => {
@@ -323,7 +329,7 @@ export default function BattleEncounter({
                 <strong>
                   {battle.feedback.correct
                     ? "Correct! No healing penalty."
-                    : `${battle.feedback.timedOut ? "Time’s up!" : "Incorrect."} ${professor.name} recovered ${battle.feedback.healed} HP (${battle.feedback.healingPercent}% of lost HP).${battle.feedback.playerDamage !== undefined ? ` You lost ${battle.feedback.playerDamage} HP (80% of your current HP, rounded down).` : ""}`}
+                    : `${battle.feedback.timedOut ? "Time’s up!" : "Incorrect."} ${professor.name} recovered ${battle.feedback.healed} HP (${battle.feedback.healingPercent}% of max HP).${battle.feedback.playerDamage !== undefined ? ` You lost ${battle.feedback.playerDamage} HP (5–12% of your current HP, capped at 15).` : ""}`}
                 </strong>
                 <p>{battle.feedback.explanation}</p>
               </div>
@@ -341,9 +347,9 @@ export default function BattleEncounter({
                   Pop quiz {battle.eventNumber} / 3
                 </h3>
                 <p>
-                  Answer in 10 seconds. A wrong answer or timeout heals the
-                  professor for 50–80% of their lost HP and costs you 80% of
-                  your current HP (damage rounded down).
+                  Answer in 30 seconds. A wrong answer or timeout heals the
+                  professor for 10–20% of their max HP and costs you 5–12% of
+                  your current HP, capped at 15.
                 </p>
                 {battle.question ? (
                   <>

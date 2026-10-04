@@ -146,7 +146,7 @@ export function publicBattle(battle: Battle) {
     health: combat.health,
     maxHealth: combat.maxHealth,
     playerHealth: combat.playerHealth,
-    playerMaxHealth: 100,
+    playerMaxHealth: combat.playerMaxHealth,
     status: combat.status,
     eventNumber: combat.pendingEvent === null ? null : combat.pendingEvent + 1,
     eventsTriggered: combat.eventsTriggered,
