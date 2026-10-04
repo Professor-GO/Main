@@ -1,0 +1,505 @@
+.showcase {
+  border-left: 1px solid var(--line);
+  position: relative;
+  padding: 32px 35px 26px;
+  overflow: hidden;
+  background-color: #eaf0df;
+  background-image:
+    linear-gradient(#37503a06 1px, transparent 1px),
+    linear-gradient(90deg, #37503a06 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+.showcase-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #6d7d60;
+}
+.showcase-top .eyebrow {
+  font-size: 9px;
+}
+.edition {
+  font:
+    9px "Courier New",
+    monospace;
+  letter-spacing: 0.08em;
+}
+.card-stage {
+  position: relative;
+  height: 475px;
+  max-width: 520px;
+  margin: 0 auto;
+}
+.prof-card {
+  position: absolute;
+  width: 220px;
+  padding: 9px;
+  border: 1.5px solid #294536;
+  border-radius: 10px;
+  background: #f9f8eb;
+  box-shadow:
+    4px 5px 0 #294536,
+    12px 20px 25px #34442914;
+  z-index: 2;
+}
+.vector-card {
+  top: 44px;
+  left: 12px;
+  transform: rotate(-10deg);
+}
+.byte-card {
+  top: 116px;
+  right: 0;
+  transform: rotate(9deg);
+  background: #fff9ee;
+  z-index: 3;
+}
+.card-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+  font:
+    bold 7px "Courier New",
+    monospace;
+  padding: 4px 2px 9px;
+  letter-spacing: 0.01em;
+}
+.card-topline span:last-child {
+  font-size: 7px;
+}
+.prof-portrait {
+  position: relative;
+  height: 162px;
+  border: 1px solid #294536;
+  overflow: hidden;
+  border-radius: 3px;
+}
+.vector-portrait {
+  background: #b8cd90;
+  background-image:
+    linear-gradient(#ffffff15 1px, transparent 1px),
+    linear-gradient(90deg, #ffffff15 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+.byte-portrait {
+  background: #bfc9d7;
+  background-image:
+    linear-gradient(#ffffff19 1px, transparent 1px),
+    linear-gradient(90deg, #ffffff19 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+.pixel-prof {
+  display: block;
+  width: 160px;
+  height: 160px;
+  position: absolute;
+  bottom: 0;
+  left: calc(50% - 80px);
+  image-rendering: pixelated;
+}
+.portrait-formula {
+  position: absolute;
+  font:
+    bold 15px "Courier New",
+    monospace;
+  color: #29453655;
+}
+.formula-one {
+  top: 14px;
+  left: 10px;
+  transform: rotate(-10deg);
+}
+.formula-two {
+  top: 61px;
+  right: 12px;
+  font-size: 28px;
+}
+.level-tag {
+  position: absolute;
+  bottom: 7px;
+  left: 7px;
+  padding: 4px 5px;
+  color: #fff;
+  background: #294536;
+  font:
+    7px "Courier New",
+    monospace;
+}
+.card-info {
+  padding: 10px 3px 0;
+}
+.card-info h3 {
+  margin: 0 0 4px;
+  font-size: 21px;
+  letter-spacing: -0.06em;
+}
+.card-info p {
+  margin: 0;
+  color: #687260;
+  font-size: 9px;
+}
+.card-move {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #d9decf;
+  font-size: 8px;
+}
+.card-move strong {
+  font-size: 17px;
+}
+.card-move small {
+  font:
+    6px "Courier New",
+    monospace;
+}
+.card-bottom {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 3px 1px;
+  font:
+    6px "Courier New",
+    monospace;
+  letter-spacing: 0.04em;
+  color: #7c816c;
+}
+.versus {
+  position: absolute;
+  top: 204px;
+  left: calc(50% - 34px);
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  transform: rotate(-12deg);
+  font-size: 22px;
+  font-weight: 900;
+  font-style: italic;
+  color: #f7f9e9;
+  background: var(--green);
+  clip-path: polygon(
+    50% 0,
+    64% 15%,
+    87% 9%,
+    85% 35%,
+    100% 50%,
+    83% 64%,
+    90% 88%,
+    65% 85%,
+    50% 100%,
+    34% 83%,
+    10% 90%,
+    15% 65%,
+    0 50%,
+    17% 35%,
+    10% 10%,
+    35% 15%
+  );
+}
+.versus span {
+  display: none;
+}
+.orbit {
+  position: absolute;
+  border: 1px solid #b4c4a0;
+  border-radius: 50%;
+  width: 365px;
+  height: 365px;
+  left: calc(50% - 182px);
+  top: 39px;
+}
+.orbit-two {
+  width: 430px;
+  height: 430px;
+  top: 6px;
+  left: calc(50% - 215px);
+  border-style: dashed;
+  opacity: 0.6;
+}
+.stage-spark {
+  position: absolute;
+  color: var(--green);
+}
+.spark-one {
+  top: 42px;
+  right: 36px;
+  font-size: 46px;
+  transform: rotate(12deg);
+}
+.spark-two {
+  bottom: 57px;
+  left: 18px;
+  font:
+    38px "Courier New",
+    monospace;
+}
+.stage-note {
+  position: absolute;
+  top: 83px;
+  right: 100px;
+  font:
+    7px "Courier New",
+    monospace;
+  line-height: 1.5;
+  transform: rotate(9deg);
+  color: #6d7d60;
+}
+.sample-caption {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  text-align: center;
+  font:
+    8px "Courier New",
+    monospace;
+  letter-spacing: 0.07em;
+  color: #69785c;
+}
+.showcase-copy {
+  text-align: center;
+  padding-top: 24px;
+}
+.showcase-copy .eyebrow {
+  color: #647854;
+  font-size: 9px;
+}
+.showcase-copy h2 {
+  margin: 8px 0 10px;
+  font-size: 33px;
+  font-weight: 750;
+  letter-spacing: -0.05em;
+}
+.showcase-copy > p:last-child {
+  margin: 0;
+  font-size: 12px;
+  color: #748068;
+  line-height: 1.7;
+}
+.game-loop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 430px;
+  margin: 30px auto 0;
+  padding-top: 20px;
+  border-top: 1px solid #cad6bb;
+}
+.game-loop > div {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.game-loop > div > span {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid #bccda8;
+  border-radius: 50%;
+  font:
+    8px "Courier New",
+    monospace;
+  color: #5e7452;
+}
+.game-loop p {
+  font-size: 10px;
+  font-weight: 650;
+  margin: 0;
+}
+.loop-arrow {
+  font-size: 14px;
+  color: #8c9d7d;
+}
+@media (max-width: 1150px) {
+  .showcase {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+  .prof-card {
+    width: 195px;
+  }
+  .prof-portrait {
+    height: 147px;
+  }
+  .vector-card {
+    left: 0;
+    top: 63px;
+  }
+  .byte-card {
+    top: 144px;
+    right: 0;
+  }
+  .card-topline {
+    font-size: 6px;
+  }
+  .card-move {
+    font-size: 7px;
+  }
+  .stage-note {
+    right: 73px;
+    top: 94px;
+  }
+  .game-loop {
+    gap: 5px;
+  }
+  .game-loop > div {
+    gap: 5px;
+  }
+  .game-loop p {
+    font-size: 9px;
+  }
+}
+@media (max-width: 850px) {
+  .showcase {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding: 28px 32px;
+  }
+  .card-stage {
+    max-width: 445px;
+  }
+  .prof-card {
+    width: 215px;
+  }
+  .prof-portrait {
+    height: 162px;
+  }
+  .vector-card {
+    top: 45px;
+    left: 13px;
+  }
+  .byte-card {
+    top: 115px;
+    right: 4px;
+  }
+  .card-topline {
+    font-size: 7px;
+  }
+  .stage-note {
+    top: 73px;
+    right: 78px;
+  }
+  .spark-one {
+    right: 23px;
+  }
+  .game-loop p {
+    font-size: 10px;
+  }
+  .game-loop {
+    margin-top: 26px;
+  }
+}
+@media (max-width: 480px) {
+  .showcase {
+    padding: 24px 22px;
+  }
+  .showcase-top .eyebrow {
+    font-size: 8px;
+  }
+  .card-stage {
+    height: 470px;
+  }
+  .prof-card {
+    width: 181px;
+    padding: 7px;
+  }
+  .vector-card {
+    top: 42px;
+    left: 3px;
+    transform: rotate(-9deg);
+  }
+  .byte-card {
+    top: 155px;
+    right: 0;
+    transform: rotate(8deg);
+  }
+  .prof-portrait {
+    height: 137px;
+  }
+  .pixel-prof {
+    width: 140px;
+    height: 140px;
+    left: calc(50% - 70px);
+  }
+  .card-topline,
+  .card-topline span:last-child {
+    font-size: 5.5px;
+  }
+  .card-info h3 {
+    font-size: 19px;
+  }
+  .card-info p {
+    font-size: 8px;
+  }
+  .card-move {
+    margin-top: 8px;
+    padding-top: 8px;
+    font-size: 6.5px;
+  }
+  .card-move strong {
+    font-size: 14px;
+  }
+  .card-bottom {
+    font-size: 5px;
+  }
+  .spark-one {
+    right: 27px;
+    top: 50px;
+  }
+  .stage-note {
+    top: 104px;
+    right: 25px;
+  }
+  .spark-two {
+    bottom: 53px;
+    left: 35px;
+  }
+  .versus {
+    top: 213px;
+    left: calc(50% - 28px);
+    width: 54px;
+    height: 54px;
+    font-size: 20px;
+  }
+  .sample-caption {
+    font-size: 7px;
+  }
+  .showcase-copy {
+    padding-top: 28px;
+  }
+  .showcase-copy h2 {
+    font-size: 31px;
+  }
+  .game-loop > div {
+    gap: 5px;
+  }
+  .game-loop p {
+    font-size: 9px;
+  }
+  .game-loop > div > span {
+    width: 19px;
+    height: 19px;
+    font-size: 7px;
+  }
+}
+@media (max-width: 360px) {
+  .prof-card {
+    width: 162px;
+  }
+  .card-topline,
+  .card-topline span:last-child {
+    font-size: 5px;
+  }
+  .card-move {
+    font-size: 6px;
+  }
+  .showcase {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}

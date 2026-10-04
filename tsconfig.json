@@ -11,8 +11,7 @@
 		"types": ["node"]
 	},
 	"include": [
-		"BackEnd/**/*.ts",
-		"BackEndTest/**/*.ts"
+		"src/server/**/*.ts"
 	],
 	"exclude": [
 		"node_modules"

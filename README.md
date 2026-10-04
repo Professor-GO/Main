@@ -1,277 +1,118 @@
 # Professor-Go
 
-A hackathon prototype for a university-themed professor collection and battle game.
-Players recruit professors through token-based gacha pulls, build their roster, and eventually expand the game into combat and map-based interactions.
+A university-themed game prototype with account access, a player lobby, and coding questions that award tokens. Recruitment, inventory, and level-up APIs exist; the browser recruitment and battle buttons remain placeholders.
 
-This project is still in active prototype stage, with the core auth, database, gacha logic, and local game flow already in place.
+## Run locally
 
-## Overview
-
-- Professors are fictional concept cards with unique stats and departments.
-- Players create accounts and log in with Better Auth.
-- The app includes local SQLite persistence, inventory management, and gacha pulls.
-- The frontend is served as simple HTML/CSS/JS, while the backend runs TypeScript directly with Node.js.
-- The app runs locally without any external database service.
-
-## Quick start
-
-Requirements:
-
-- Node.js 24.x
-- npm
-
-Install dependencies:
+Use **Node.js 24.x** and npm. The backend runs TypeScript directly with Node type stripping and built-in SQLite. The React/TypeScript client is built by Vite.
 
 ```sh
-npm install
+npm install --ignore-scripts
+npm run dev
 ```
 
-Start the app:
+Open `http://127.0.0.1:3000`. The native development launcher runs Vite on the website port and Express on API port 3001. It loads repository-root `.env`, preserves the website Host and cookies through the API proxy, and closes its API child when the launcher stops. Ctrl+C stops the development application. `--ignore-scripts` disables dependency lifecycle scripts; the obsolete repository postinstall hook has been removed.
+
+To run the built application without Vite:
 
 ```sh
+npm run build
 npm start
 ```
 
-Then open:
+`npm start` requires `dist/client` from the build. It starts both Express listeners in one process. Restart after rebuilding assets because production assets are loaded into memory at startup. Starting does not type-check. For deployment, set `APP_ENV=production`, a real `BETTER_AUTH_SECRET`, and an HTTPS `BETTER_AUTH_URL`; serve HTTPS through the deployment edge. This repository work does not deploy the app.
 
-```text
-http://127.0.0.1:3000
-```
+## Configuration and data
 
-The app runs on:
+Server and development launcher read `.env` from the repository root; existing process variables take precedence. Configuration names:
 
-- Frontend: `http://127.0.0.1:3000`
-- Backend API: `http://127.0.0.1:3001`
+- `APP_ENV`: development, test, or production.
+- `FRONTEND_HOST`, `FRONTEND_PORT`: default `127.0.0.1`, `3000`.
+- `BACKEND_HOST`, `BACKEND_PORT`: default `127.0.0.1`, `3001`.
+- `DATABASE_PATH`: optional absolute path or repository-root-relative path.
+- `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`: session signing and public website URL. Production requires a real secret; Secure cookies require HTTPS.
+- `GEMINI_API_KEY`, `GEMINI_MODEL`: optional question generation settings. Empty API key uses a local fallback.
 
-The frontend proxies `/api/` requests to the backend.
+The database default remains **`BackEnd/Persistence Layer/data/game.sqlite`**. Source relocation does not migrate or replace it. Both legacy data directories can contain real account data; never use them as test fixtures. Tests create disposable databases. Better Auth owns accounts, passwords, and sessions. Legacy `users`/`sessions` are preserved, and an old inventory referencing `users` is preserved as `inventory_legacy`, not migrated into new accounts.
 
-## Project structure
-
-```text
-Main/
-├── BackEnd/
-│   ├── auth.ts
-│   ├── database.ts
-│   ├── server.ts
-│   ├── schema.sql
-│   ├── data/
-│   ├── Express/
-│   ├── Professor Gacha System/
-│   └── Gemini.ts
-├── BackEndTest/
-├── FrontEnd/
-│   ├── index.html
-│   ├── app.js
-│   └── styles.css
-├── Assets/
-├── package.json
-├── tsconfig.json
-├── README.md
-└── .env.example (if present in your setup)
-```
-
-## Local development notes
-
-- Node runs `.ts` files directly; there is no separate build step required to launch the app.
-- Running `npm start` does not run TypeScript checking.
-- Use `npm run typecheck` for strict type validation.
-- `npm run build` performs the same type-checking logic without generating JavaScript files.
-
-## Authentication and sessions
-
-The app includes:
-
-- account creation
-- login/logout
-- password visibility toggle
-- session restoration
-- account status checks
-- inactive-user protection
-
-Authentication is handled by [Better Auth](https://www.better-auth.com) in `BackEnd/auth.ts`.
-
-Session details:
-
-- sessions last 7 days
-- sessions survive server restarts
-- cookies use `HttpOnly` and `SameSite=Lax`
-- `Secure` is enabled when `APP_ENV=production`
-
-### Account rules
-
-- usernames: 3–20 characters, letters/numbers/underscores
-- passwords: 8–128 characters
-- duplicate usernames are handled case-insensitively
-- accounts are stored in SQLite via Better Auth tables
-
-## Database
-
-On first startup, the app creates the local database at:
-
-```text
-BackEnd/data/game.sqlite
-```
-
-This file contains local app data and is ignored by git, along with SQLite journal files.
-
-The primary app schema is in [`BackEnd/schema.sql`](BackEnd/schema.sql), which the backend loads directly.
-
-### Better Auth tables
-
-| Table | Purpose |
-| --- | --- |
-| `user` | Player account row with username, display name, token balance, and active status |
-| `account` | Salted password hash |
-| `session` | Login session data and expiry |
-| `verification` | Better Auth verification state |
-
-Better Auth requires an email field for every account, but players only create a username and password. The app inserts a hidden placeholder email like:
-
-```text
-testplayer@players.professor-go.invalid
-```
-
-This placeholder is never shown and is not used for mail delivery.
-
-### Game tables
-
-The `inventory` table tracks each player's recruited professors, including:
-
-- `user_id`
-- `professor_id`
-- `level`
-- `copies`
-- `obtained_at`
-
-Each player has one row per professor. If they pull a professor they already own, the copy count increases instead of creating a duplicate row.
-
-### Account status commands
+Local account administration modifies the configured database:
 
 ```sh
 npm run account:status -- PlayerName inactive
 npm run account:status -- PlayerName active
 ```
 
-Deactivating a player revokes all active sessions. Inactive users cannot log in until the account is reactivated.
+Deactivation revokes sessions; reactivation requires fresh login.
 
-## Professor gacha
+## Maintained structure
 
-The playable professor roster is defined in [`BackEnd/Professor Gacha System/Professor Pool/professors.ts`](BackEnd/Professor%20Gacha%20System/Professor%20Pool/professors.ts).
-
-Each professor entry includes:
-
-- `id`
-- `name`
-- `image`
-- `avgRating` (1–5)
-- `department`
-- `stats` (`health`, `attack`, `defense`, `speed`)
-- `copiesToLevelUp`
-
-- **Rarity** comes from `avgRating`: Legendary from 4.5, Epic from 4.0, Rare from 3.0, otherwise Common.
-- **Legendary professors** have a 0.08% chance per pull. After 50 pulls in a row without one, the chance rises in a straight line until pull 80, which is always Legendary. Pulling one resets the count.
-- **Epic professors** have a 5% chance per pull. The 10th pull in a row without one is always Epic, unless it is Legendary.
-- **Rare and Common professors** cannot be pulled.
-- **Cages** fill every other pull: golden, iron, and bronze cages in a 1 : 5 : 10 ratio. Each player's cage counts are stored in the `items` table.
-- Professors of the same rarity are equally likely. The pool is never used up, so a player can pull the same professor or cage any number of times.
-- Each player's pity counts are stored in the `gacha_pity` table.
-- Each pull costs `PULL_COST` (10) tokens. A new professor joins the player's inventory at level 1 with 1 copy; a professor the player already owns gains another copy. The token deduction, the prize, and the pity counts are saved in one transaction, so a failed pull never costs tokens.
-- **Levelling up** is the player's choice: it spends the professor's `copiesToLevelUp` copies and raises their level by 1. The player always keeps the professor itself, so they need `copiesToLevelUp + 1` copies in total. For example, with `copiesToLevelUp: 2`, a player with 3 copies can level up and is left with 1.
-- A professor's **level** and **copies** are stored in each player's inventory, not in the roster, because the roster is shared by every player. There is no maximum level yet.
-
-The server refuses to start if the roster has no Legendary or no Epic professor, or an entry has a duplicate `id`, a rating outside 1–5, an unknown department, or a stat or `copiesToLevelUp` that is not a positive whole number. Do not change a professor's `id` after players have recruited them; it is what the `inventory` table stores.
-
-### Important rules
-
-- a duplicate `id` is rejected
-- rating must be within 1–5
-- department must be valid
-- stat values and `copiesToLevelUp` must be positive whole numbers
-- do not rename a professor `id` after players have recruited them
-
-## API overview
-
-Use the website origin for browser requests, and send JSON for POST requests.
-
-| Method | Route | Description |
-| --- | --- | --- |
-| GET | `/api/health` | Checks server and database availability |
-| POST | `/api/auth/register` | Creates an active account and session; accepts `username`, `password` |
-| POST | `/api/auth/login` | Authenticates an active account; accepts `username`, `password` |
-| GET | `/api/auth/me` | Returns the authenticated user's public account fields |
-| POST | `/api/auth/logout` | Revokes the current session; send `{}` |
-| GET | `/api/gacha/pool` | Returns `{ "cost", "professors", "cages" }`: the pull cost, and every professor and cage with its `pullChance` before pity |
-| POST | `/api/gacha/pull` | Logged-in players only; send `{}`. Spends tokens and returns `{ "kind": "professor", "item", "isNew", "pity", "user" }` or `{ "kind": "cage", "cage", "quantity", "pity", "user" }`, or `409` if the player has too few tokens. `isNew` is `false` when the pull added a copy of a professor the player already owned |
-| GET | `/api/inventory` | Logged-in players only. Returns `{ "inventory", "cages" }`: the player's professors, oldest first, and their cages |
-| POST | `/api/inventory/level-up` | Logged-in players only; send `{ "professorId" }`. Spends copies and returns `{ "item" }`; `404` if the player does not own that professor, `409` if they need more copies |
-
-- `question`
-- `topic`
-- `difficulty`
-- `choices`
-- `answerIndex`
-- `explanation`
-- `source`
-
-It uses Gemini when `GEMINI_API_KEY` is configured; otherwise it falls back to a local built-in question.
-
-## Environment variables
-
-Optional local settings can go in a `.env` file at the project root.
-
-Useful values include:
-
-```sh
-BETTER_AUTH_SECRET=...
-BETTER_AUTH_URL=http://127.0.0.1:3000
-APP_ENV=development
-GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-3.8-flash
+```text
+src/client/             React pages, typed API clients, question state, local CSS
+src/server/bootstrap/   Startup, validated configuration, built-asset loading
+src/server/http/        Express API composition, website proxy and security headers
+src/server/modules/     Accounts, recruitment and questions (current implementation)
+src/server/storage/     SQLite initialization and schema
+scripts/dev.mjs         Native Vite/API development lifecycle
+scripts/tests/          Disposable-database development proxy/cleanup checks
+dist/client/            Generated deployable client assets
+Assets/                 Private artwork, not automatically published
 ```
 
-Notes:
+This milestone delivers the runnable client/server framework and preserves existing behavior. The deeper domain/use-case/adapter extraction from the original full refactor plan is **deferred**. Independent framework and browser parity review passed before removing the obsolete `FrontEnd/` implementation; its historical version remains in Git. This does not imply that the deeper architecture work is complete. Work remains on `chore/integration`; no merge, push, or deployment is implied.
 
-- `BETTER_AUTH_SECRET` signs session cookies
-- changing it logs everyone out
-- without it, the app uses a built-in development secret
-- `APP_ENV=production` disables some development behavior and requires HTTPS
-- `GEMINI_API_KEY` enables Gemini-powered coding questions
+### Legacy cleanup
+
+The old `FrontEnd/`, `BackEnd/` and `BackEndTest/` source trees are no longer maintained or required to build the application. Backend code and tests live under `src/server/`; obsolete frontend code was removed after parity verification. Historical implementations remain available in Git. Empty legacy directories have also been removed from the working copy.
+
+The `BackEnd/` name remains only in the backward-compatible default database location and security regression probes. Starting with the default database configuration may recreate its data directory; that is persistent storage, not a second backend implementation. Do not delete existing databases, legacy-table preservation logic, or private-path tests as obsolete code. Unused legacy dependencies, the old coverage command and the postinstall Git hook mutation have been removed; the maintained runners are Node's test runner and Vitest.
 
 ## Verification
 
-Run:
-
 ```sh
-npm install
 npm run typecheck
 npm test
+npm run lint:check
+npm run build
 ```
 
-The tests cover:
+- Typecheck runs `tsconfig.server.json` (NodeNext) and `tsconfig.client.json` (browser/bundler) separately.
+- `test:server` uses Node's runner for `src/server/**/*.test.ts`, with file concurrency limited to one to avoid competing server startups exhausting fixed readiness deadlines. Assertions and timeout thresholds are unchanged, including the concurrent-signup test. Run one suite directly with Node or use `test:auth`.
+- `test:client` first runs existing pure-state `.test.ts` tests with Node, then Vitest discovers only `.test.tsx` and `.vitest.ts` files. These discovery patterns do not overlap.
+- `test:tooling` starts the real dev launcher against temporary SQLite, checks cookie/origin/rate-limit/private-file behavior, stops it, and verifies both ports close.
+- `npm test` runs all three groups. Server HTTP tests build their own disposable client assets where required.
+- ESLint covers maintained client/server/config/tooling sources, including a client-to-server import restriction. Prettier is separate and targets maintained sources.
 
-- registration and validation
-- duplicate username handling
-- password checks
-- cookies and logout
-- inactive accounts and session expiry
-- database persistence across restarts
-- rate limiting
-- private file protection
-- gacha odds and token deduction
+The previously observed intermittent authentication child-startup timeout is recorded in the vault milestone evidence. Do not conceal recurrence by increasing a threshold without diagnosis. Unused legacy dependencies and test tooling have been removed. Recheck dependency advisories with `npm audit`; a clean audit is point-in-time evidence, not a security guarantee.
 
-## Main backend files
+## Contracts and security
 
-- `BackEnd/server.ts` — starts the app and serves the frontend
-- `BackEnd/auth.ts` — Better Auth setup
-- `BackEnd/database.ts` — SQLite connection and helpers
-- `BackEnd/account-status.ts` — account status actions
-- `BackEnd/Gemini.ts` — AI question generation
-- `BackEnd/schema.sql` — base SQL schema
-- `BackEnd/Professor Gacha System/` — roster and gacha logic
-- `BackEndTest/*.test.ts` — automated tests
+Browser API requests are same-origin. POST bodies are JSON objects; errors use `{ message }`. API edges retain origin checks, bounded JSON, rate limits, cookies and response security headers. Vite reuses the existing Express API edge so its stricter login/register limiter is not bypassed. Production serves only the built-asset allowlist, never the repository root, source, environment, team files, or database. The client imports no server internals and exposes no server environment variables.
 
-## References
+| Method | Route | Behavior |
+| --- | --- | --- |
+| GET | `/api/health` | API/database health |
+| POST | `/api/auth/register` | Create account and session |
+| POST | `/api/auth/login` | Authenticate |
+| GET | `/api/auth/me` | Public profile with string ID and token balance |
+| POST | `/api/auth/logout` | Revoke session |
+| GET | `/api/gacha/pool` | Roster and pull cost |
+| POST | `/api/gacha/pull` | Spend tokens, award professor or cage, and update pity atomically |
+| GET | `/api/inventory` | Owned professors and cages |
+| POST | `/api/inventory/level-up` | Spend spare copies |
+| GET | `/api/question` | Player-owned question attempt, no answer or explanation |
+| POST | `/api/question/answer` | Submit `{ questionId, selectedIndex }` |
 
-- [Node.js TypeScript support](https://nodejs.org/docs/latest/v24.x/api/typescript.html)
-- [Better Auth docs](https://www.better-auth.com/docs)
-- [Better Auth username plugin](https://www.better-auth.com/docs/plugins/username)
+Accounts begin with 50 tokens; a pull costs 10. Professor IDs remain stable inventory keys, and duplicates add copies. Level-up retains at least one copy.
+
+### Recruitment rules merged from main
+
+The roster lives in `src/server/modules/recruitment/domain/professors.ts`; policy lives in `src/server/modules/recruitment/application/recruitment.ts`.
+
+- Legendary professors share a 0.08% base chance. After 50 pulls without one, the chance rises linearly to a guarantee on pull 80.
+- Epic professors share a 5% base chance. The 10th pull without an Epic guarantees an Epic unless it is Legendary; Legendary takes precedence when both guarantees are due.
+- Professors within each eligible tier are equally likely. Rare and Common roster entries cannot be pulled. The roster must contain a Legendary and an Epic; IDs, departments, ratings, stats and copy costs remain validated.
+- Other pulls award golden, iron or bronze cages in a 1:5:10 ratio. Cage counts live in `items`; player counters live in `gacha_pity`. Token debit, prize and counters are saved atomically. Tables are created if missing; existing accounts and inventory are retained.
+
+Pool responses include `{ cost, professors, cages }`. Pull responses are `{ kind: "professor", item, isNew, pity, user }` or `{ kind: "cage", cage, quantity, pity, user }`. Inventory returns `{ inventory, cages }`. Recruitment and battle UI remain placeholders. New `Assets/gacha/` artwork is retained privately, not exposed by the public build allowlist.
+
+Question correctness and rewards remain server-owned. A correct first answer awards one token atomically with the recorded choice. Same-choice retries are idempotent; changed answers are rejected. A lost response enables only explicit same-choice retry in the UI, not automatic resubmission. React renders generated/player content as text.
