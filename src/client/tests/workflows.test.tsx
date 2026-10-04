@@ -22,6 +22,33 @@ const question = {
 const reply = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status });
 
+test("the lobby opens the professor inventory and returns with lobby focus", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((path: string) =>
+      Promise.resolve(
+        path === "/api/auth/me"
+          ? reply({ user: player })
+          : reply({ inventory: [] }),
+      ),
+    ),
+  );
+  const user = userEvent.setup();
+  render(<App />);
+  await user.click(
+    await screen.findByRole("button", { name: /View your professors/ }),
+  );
+  expect(
+    await screen.findByRole("heading", { name: "No professors yet" }),
+  ).toBeVisible();
+  await user.click(screen.getByRole("button", { name: /Back to lobby/ }));
+  await waitFor(() =>
+    expect(
+      screen.getByRole("heading", { name: /Welcome to\s*the faculty/ }),
+    ).toHaveFocus(),
+  );
+});
+
 test("registration validates confirmation and preserves pending and error recovery", async () => {
   let finish!: (response: Response) => void;
   const fetcher = vi

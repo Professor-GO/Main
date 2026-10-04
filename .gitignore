@@ -2,8 +2,7 @@ node_modules/
 package-lock.json
 .env
 .env.example
-BackEnd/data/
-BackEnd/Persistence Layer/data/
+src/server/storage/data/
 artifacts/
 dist/
 coverage/

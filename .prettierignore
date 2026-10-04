@@ -5,6 +5,5 @@ artifacts/
 .agent-teams/
 context/
 Assets/
-BackEnd/data/
-BackEnd/Persistence Layer/data/
+src/server/storage/data/
 package-lock.json

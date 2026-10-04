@@ -1,6 +1,6 @@
 # Game Engine
 
-A university-themed game prototype with account access, a player lobby, coding questions that award tokens, and wild professor battles on the campus map. Players recruit professors from a gashapon machine on the recruit page; the team button remains a placeholder.
+A university-themed game prototype with account access, a player lobby, coding questions that award tokens, and wild professor battles on the campus map. Players recruit professors from a gashapon machine and view their collection through **View your professors** in the lobby.
 
 ## Run locally
 
@@ -33,7 +33,7 @@ Server and development launcher read `.env` from the repository root; existing p
 - `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`: session signing and public website URL. Production requires a real secret; Secure cookies require HTTPS.
 - `GEMINI_API_KEY`, `GEMINI_MODEL`: optional question generation settings. Empty API key uses a local fallback.
 
-The database default remains **`BackEnd/Persistence Layer/data/game.sqlite`**. Source relocation does not migrate or replace it. Both legacy data directories can contain real account data; never use them as test fixtures. Tests create disposable databases. Better Auth owns accounts, passwords, and sessions. Legacy `users`/`sessions` are preserved, and an old inventory referencing `users` is preserved as `inventory_legacy`, not migrated into new accounts.
+The database default is **`src/server/storage/data/game.sqlite`**. The existing database and backups were moved there unchanged when the remaining backend files were consolidated under `src/`. Keep this ignored directory private; tests create disposable databases. If your local `.env` still points to `BackEnd/Persistence Layer/data/game.sqlite`, update `DATABASE_PATH` to the new location. Better Auth owns accounts, passwords, and sessions. Legacy `users`/`sessions` are preserved, and an old inventory referencing `users` is preserved as `inventory_legacy`, not migrated into new accounts.
 
 Local account administration modifies the configured database:
 
@@ -50,8 +50,9 @@ Deactivation revokes sessions; reactivation requires fresh login.
 src/client/             React pages, typed API clients, question state, local CSS
 src/server/bootstrap/   Startup, validated configuration, built-asset loading
 src/server/http/        Express API composition, website proxy and security headers
-src/server/modules/     Accounts, recruitment and questions (current implementation)
-src/server/storage/     SQLite initialization and schema
+src/server/modules/     Accounts, recruitment, questions and battles
+src/server/storage/     SQLite initialization, schema and ignored data/backups
+src/shared/battle/      Pure enemy AI shared with the browser arena
 scripts/dev.mjs         Native Vite/API development lifecycle
 scripts/tests/          Disposable-database development proxy/cleanup checks
 dist/client/            Generated deployable client assets
@@ -62,9 +63,9 @@ This milestone delivers the runnable client/server framework and preserves exist
 
 ### Legacy cleanup
 
-The old `FrontEnd/` and `BackEnd/` source trees are no longer maintained or required to build the application. Backend code and tests live under `src/server/`; obsolete frontend code was removed after parity verification. `BackEndTest/auth.test.ts` is a compatibility entry point for the maintained authentication suite, so `node --test BackEndTest/auth.test.ts` still works. Historical implementations remain available in Git.
+The old `FrontEnd/` and `BackEnd/` folders have been removed. Backend code and tests live under `src/server/`, with browser-safe enemy AI in `src/shared/battle/`. `BackEndTest/auth.test.ts` remains a separate compatibility entry point for the maintained authentication suite, so `node --test BackEndTest/auth.test.ts` still works. Historical implementations remain available in Git.
 
-The `BackEnd/` name remains only in the backward-compatible default database location and security regression probes. Starting with the default database configuration may recreate its data directory; that is persistent storage, not a second backend implementation. Do not delete existing databases, legacy-table preservation logic, or private-path tests as obsolete code. Unused legacy dependencies, the old coverage command and the postinstall Git hook mutation have been removed; the maintained runners are Node's test runner and Vitest.
+The default storage path and local configuration now use `src/server/storage/data/`, so normal startup does not recreate `BackEnd/`. Old private paths remain in security regression probes alongside the new server/data paths. Existing databases, backups and legacy-table preservation logic remain intact. The maintained runners are Node's test runner and Vitest.
 
 ## Verification
 
@@ -95,9 +96,6 @@ Browser API requests are same-origin. POST bodies are JSON objects; errors use `
 | POST | `/api/auth/login` | Authenticate |
 | GET | `/api/auth/me` | Public profile with string ID and token balance |
 | POST | `/api/auth/logout` | Revoke session |
-| GET | `/api/gacha/pool` | Roster and pull cost |
-| POST | `/api/gacha/pull` | Spend tokens, award professor or cage, and update pity atomically. With `{ count: 10 }`, makes ten pulls if the player can afford all ten and replies `{ pulls, user }` |
-| GET | `/api/inventory` | Owned professors and cages |
 | GET | `/api/gacha/pool` | Roster with each professor's cage and base chance, the cages, and pull cost |
 | GET | `/api/gacha/pity` | The player's pity, pull cost, and guarantee size |
 | POST | `/api/gacha/pull` | Spend tokens, award a caged professor, and update pity atomically |
@@ -105,11 +103,10 @@ Browser API requests are same-origin. POST bodies are JSON objects; errors use `
 | POST | `/api/inventory/level-up` | Spend spare copies |
 | GET | `/api/question` | Player-owned question attempt, no answer or explanation |
 | POST | `/api/question/answer` | Submit `{ questionId, selectedIndex }` |
-| POST | `/api/battle/start` | Start/retry a Rare or Epic encounter with `{ encounterId, professorId, fighterId? }`. `fighterId` is a professor the player owns and sends out; without it the student fights |
+| POST | `/api/battle/start` | Start/retry a Rare/Epic encounter with `{ encounterId, professorId, level }`; level is a whole number from 10–100 |
 | GET | `/api/battle/:id` | Owned battle state; settles expired questions |
 | GET | `/api/battle/:id/question` | Generate/retrieve the current private battle question |
-| POST | `/api/battle/:id/action` | Attack, answer, timeout, or flee with an idempotent action ID and expected version |
-| POST | `/api/battle/:id/catch` | After a win, spend one owned cage `{ cageId }` to add the defeated professor to the inventory; once per battle |
+| POST | `/api/battle/:id/action` | Summon, player/enemy landed hit, answer, timeout, or flee with an idempotent action ID and expected version; summon adds `professorId` |
 
 Accounts begin with 50 tokens; a pull costs 10. Professor IDs remain stable inventory keys, and duplicates add copies. Level-up retains at least one copy.
 
@@ -137,21 +134,19 @@ The lobby's **Explore the campus** button opens a top-down open world, drawn on 
 - The world is 5 × 5 screens of 12 × 12 tiles. The player starts at their house in the middle screen (C3) and walks in 8 directions with WASD, the arrow keys, or the on-screen pad.
 - Walking off a screen's edge arrives at the opposite edge of the next screen; walking off the world's edge wraps around to the other side. Signposts on each edge name the next screen.
 - Scenery is generated from a fixed seed, so the map is the same on every visit. Blocking scenery stays off each screen's outer ring, so every screen can be crossed. Only a tree's trunk blocks the player; they can walk under its leaves, which then hide them.
-- **Wild professors** are the Rare and Epic ones (from `GET /api/gacha/pool`). They appear at random on the campus and inside the school, never at home, at most 6 at once, a new one every 5–12 seconds, always within 16 tiles of the player so one is usually in sight. They roam as animated stickmen, crossing from screen to screen but keeping off the home screen. Walking up to one shows an encounter card where the player chooses who to send out (one of their professors, or themselves), with **Fight professor** and **Keep exploring**. Spawns are not saved or server-checked.
-- **Buildings:** the house (screen C3) and the school (screen D3) can be entered by pressing F at the door, and left the same way. Each is one room built from the pictures in `Assets/`; the side and bottom walls are black lines.
-- **Battles** take over the map with the clearing from `Assets/fighting_scene/`. Both fighters shake left and right, attacks play as punches, and the three timed quizzes interrupt as before. A sent-out professor fights with its own stats (see `professorFighter` in the game engine); each level above 1 adds 10% health and attack. After a win the player can throw one of their cages to catch the professor, or let them go. Battles grant no tokens.
-- **Gashapon machine:** it stands in the school; press F in front of it. Capsules tumble in the globe with simple physics, and the player can pull 1 or 10. Each capsule rolls out, splits in half, and reveals the prize: a professor in a cage (gold for Legendary, copper otherwise) or a cage.
-- **Teacher:** a teacher stands at the blackboard in the school; press F beside them for a quiz. Each correct answer to a teacher's question earns 10 tokens (`GET /api/question?from=teacher`); the reward is saved with the question on the server. The lobby quiz still earns 1.
-- **Stickmen:** the player and the professors are drawn with the rig from `Assets/stickman-react`, ported to TypeScript in `src/client/features/stickman/` and animated with GSAP. Their head pictures are in `Assets/stickman/heads/`.
+- Press **F** at the house door to enter your furnished home, or at the school door on D3 to enter its classroom. Furniture and walls block movement; F at the interior door returns you to the same building's doorstep.
+- Rare and Epic professors (from `GET /api/gacha/pool`) appear on campus or inside the school, never at home, at most six at once. Campus professors preserve wandering, chase, collision and safe-home behavior. Spawns roll levels 10–100; their level appears above their name, and chase tags turn red. Walking up to one shows **Fight professor** and **Keep exploring**, then the existing summon/real-time battle flow. Spawns are not saved or server-checked; battles grant no capture, inventory, or token rewards.
+- Press **F** near the school gashapon machine for one or ten pulls using the same professor rewards, rarity cages, pity and token costs as the lobby machine. Near the teacher, F opens a quiz awarding 10 tokens for a correct answer; ordinary lobby practice still awards one. Both overlays pause exploration and clear movement input before returning to the room.
 
-Map mechanics live in `src/client/features/world/Game Mechanics/`: the campus rules (layout, walking, wrapping, collisions, spawns, doors) in `world.ts`, the room rules in `rooms.ts`, the capsule physics in `capsules.ts`, tests in `tests/`, and the game loop in `game.ts`. Battle/health rules live in `BackEnd/Game Engine/encounterBattle.ts`, SQLite battle storage in `BackEnd/Persistence Layer/encounterBattles.ts`, and authenticated routes in `src/server/modules/battles/`. Drawing is in `features/world/renderer.ts`, and the pages in `pages/WorldPage/` (`WorldPage`, `ActorLayer`, `BattleEncounter`, `Gashapon`). Only the artwork imported by `features/world/art.ts` and `features/stickman/looks.ts` is published; the outsides of the house and school are drawn in code.
+Map mechanics live in `src/client/features/world/Game Mechanics/`: campus rules in `world.ts`, room layouts and interactions in `rooms.ts`, and the game loop in `game.ts`. Battle rules live in `src/server/modules/battles/domain/encounterBattle.ts`, battle storage in `infrastructure/sqliteEncounterBattles.ts`, and the enemy AI in `src/shared/battle/enemyProfessorAi.ts`. The canvas renderer draws scenery and rooms; `ActorLayer` animates incoming stickman artwork with front/back heads from `Assets/stickman/heads/`. The existing fighting rig and controls stay in `features/battle/`. Only imported artwork is bundled or served; server source and stored data remain private.
 
 ### Wild battle quizzes
 
-- This first encounter fight uses a student with 100 HP, 600 attack, and 20 defense as temporary combat defaults. Professors use their roster stats. A turn deals `floor(attack / defense)` damage in each direction; health cannot go below zero. Team selection and level-based stats are future work.
+- Entering an encounter pauses at **Choose your first professor**. The server saves a snapshot of the player's owned professors, and an explicit **Summon professor** command starts combat. Summoned fighters and wild enemies use their listed roster HP, attack and defense. Player punches deal `max(1, floor(attack / defense))` damage; enemy punches multiply damage by 1.2 before rounding down, with the same one-damage minimum. HP is clamped at zero. For each level above the opponent, the higher-level fighter gets a 5% bonus to attack, defense and running speed; health stays at the roster value.
+- When a summoned professor reaches zero HP, combat pauses to choose an undefeated reserve. Each distinct owned professor can fight once per encounter; duplicate copies remain upgrade materials. The new fighter enters at full HP while enemy HP and quiz checkpoints remain unchanged. The battle ends in defeat when all professors are knocked out. An empty collection must recruit before fighting, or run away.
 - Each battle rolls a whole-HP trigger inside **2/3–3/4** of maximum professor health, another inside **1/3–3/5**, and a final trigger at **10%** (whole HP rounded down). Each event fires once, even if healing raises HP above an earlier trigger.
-- A strike pauses at a crossed checkpoint. Its remaining damage resumes after the quiz; a large or lethal strike can therefore interrupt for several quizzes before finishing. The professor counterattacks once when that strike finishes, unless defeated.
-- Each popup reuses the Gemini coding-question generator and local fallback. Combat pauses while the question is generated. The server starts a **10-second** deadline after generation. An incorrect answer or timeout heals the professor by `floor((maxHP - currentHP) * percent / 100)`, where `percent` is a uniformly random integer from **50 through 80**, and costs the player `floor(currentPlayerHP * 80 / 100)` health. Both penalties apply before the interrupted strike resumes; the usual professor counterattack can cause defeat afterward. Correct answers apply neither penalty. These battle questions do not award practice tokens.
+- A strike pauses at a crossed checkpoint. Its remaining damage resumes after the quiz; a large or lethal strike can therefore interrupt for several quizzes before finishing. The player's movement and enemy AI determine which punches land; enemy hits are settled separately from player hits.
+- Each popup reuses the Gemini coding-question generator and local fallback. Combat pauses while the question is generated. The server starts a **10-second** deadline after generation. An incorrect answer or timeout heals the professor by `floor((maxHP - currentHP) * percent / 100)`, where `percent` is a uniformly random integer from **50 through 80**, and costs the active fighter `floor(currentPlayerHP * 80 / 100)` health. Both penalties apply before the interrupted strike resumes. Correct answers apply neither penalty. These battle questions do not award practice tokens.
 - Battle state, the private answer, deadlines, and processed action IDs persist in SQLite. Answers are tied to the player's current battle question. Late answers count as wrong; explicit retries cannot apply damage or healing twice. Network failures show Retry; stale versions require Refresh battle. The browser map and encounter identity still reset on reload, so there is no resume-battle UI or reward-bearing encounter validation yet.
 
 Question correctness and rewards remain server-owned. A correct first answer awards one token atomically with the recorded choice. Same-choice retries are idempotent; changed answers are rejected. A lost response enables only explicit same-choice retry in the UI, not automatic resubmission. React renders generated/player content as text.
@@ -160,8 +155,8 @@ Question correctness and rewards remain server-owned. A correct first answer awa
 
 Campus fights show two articulated SVG professors, adapted from `Assets/stickman-react.zip`, with the transparent head cutouts in `Assets/battle/heads/`. `src/client/features/battle/` contains the reusable rig, typed GSAP controller, fighter artwork mapping, and the battle arena.
 
-Before the first attack, **Battle as** lets the player choose a professor from their authenticated inventory. Empty collections use a student practice fighter. Professor selection currently changes the fighter's appearance; existing student practice stats and server combat rules are retained. It does not implement team combat or level-based battle stats.
+Choose your first summon before combat starts, then choose another available professor after a knockout. Defeated fighters are excluded from the summon selector and remain unavailable for that encounter. **A/D** or **left/right arrows** move, **W/up arrow** jumps, and **J** attacks. Desktop controls show the J key in place of an attack button; touch devices retain a punch button. Controls pause during quizzes and summon choices, and do not move the overworld behind the popup.
 
-Confirmed battle results trigger player lunges/punches, enemy hit reactions and counterattacks, quiz healing, victory waves, defeat poses, and fleeing. Loading a question or retrying an already processed command cannot replay a hit. The server remains the only authority for health, damage, question deadlines and healing. Combat controls wait for attack animations; quiz answers and their ten-second countdown remain available during visual transitions. Reduced-motion preferences suppress continuous movement while retaining the outcome poses and feedback.
+Live movement and punches animate both fighters; the enemy AI approaches, attacks and dodges. Confirmed battle results trigger quiz healing, victory waves, defeat poses and fleeing. Replacement summons reset arena positions and motions. Loading a question or retrying an already processed command cannot replay a hit. The server remains the only authority for health, damage, question deadlines and healing. Quiz answers and their ten-second countdown remain available during visual transitions. Reduced-motion preferences suppress continuous movement while retaining outcome poses and feedback.
 
 The arena scales for desktop/mobile and compacts while a timed question is open. Timelines and preference listeners are cleaned up on unmount. The original demo's fixed 25-HP damage and automatic enemy respawn are not used. Only explicitly imported artwork is bundled; the ZIP and demo files stay private.

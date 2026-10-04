@@ -1,23 +1,65 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
+import type { MutableRefObject } from "react";
 import type { BattleView } from "../world/battleApi";
 import StickmanRig from "./StickmanRig";
 import { StickmanController } from "./StickmanController";
 import { battleBeats } from "./battleAnimation";
 import type { BattleBeat } from "./battleAnimation";
+import {
+  ARENA,
+  createArena,
+  enemySpeed,
+  poseOf,
+  punchPhase,
+  stepArena,
+} from "./arena";
+import type { ArenaInput, Pose } from "./arena";
+import { createEnemyBrain } from "./enemyBrain";
 import type { FighterArt, RigParts } from "./rig";
 import "./BattleStage.css";
 
-/** Two animated rigs driven by confirmed results, rather than the demo's local HP or keyboard combat. */
+// Punches are animated live by the arena as they happen, so the server's record of them is not replayed.
+const LIVE_BEATS: ReadonlySet<BattleBeat> = new Set([
+  "playerAttack",
+  "enemyAttack",
+]);
+// The rigs are drawn at this scale, and this far from their centre to the left edge of the rig.
+const RIG_SCALE = 0.48;
+const RIG_HALF_WIDTH = 200 * RIG_SCALE;
+const RIG_TOP = 37;
+
+/**
+ * The real-time fight: the player's keys move their fighter, the enemy AI moves the professor,
+ * and each punch that lands is reported through onLand for the server to settle. Quiz healing,
+ * victory, defeat, and fleeing still play from the server's confirmed results.
+ */
 export default function BattleStage({
   player,
   enemy,
   battle,
   onAnimating,
+  input,
+  running,
+  onLand,
+  enemyStats,
 }: {
   player: FighterArt;
   enemy: FighterArt;
   battle: BattleView;
   onAnimating: (animating: boolean) => void;
+  // The keys (or on-screen buttons) the player is holding, read every frame.
+  input: MutableRefObject<ArenaInput>;
+  // Whether the fight is live. While false, both fighters freeze where they are.
+  running: boolean;
+  // Called when a punch lands: "player" when the player hit the professor, "enemy" for the reverse.
+  onLand: (by: "player" | "enemy") => void;
+  // The professor's stats, which set how fast they run and how often they attack.
+  enemyStats?: {
+    health: number;
+    attack: number;
+    defense: number;
+    speed: number;
+  };
 }) {
   const playerParts = useRef<RigParts>({});
   const enemyParts = useRef<RigParts>({});
@@ -31,6 +73,30 @@ export default function BattleStage({
   const queue = useRef<BattleBeat[]>([]);
   const playing = useRef(false);
   const pump = useRef<() => void>(() => {});
+  const arena = useRef(createArena());
+  // The higher-level fighter runs faster by their level bonus (100 means no bonus). The AI also
+  // sees the boosted speed stat, so a higher-level professor attacks more often.
+  const bonus = battle.levelBonus ?? { player: 100, enemy: 100 };
+  const speed = (enemySpeed(enemyStats) * bonus.enemy) / 100;
+  const playerSpeed = (ARENA.playerSpeed * bonus.player) / 100;
+  const brain = useRef<ReturnType<typeof createEnemyBrain> | null>(null);
+  brain.current ??= createEnemyBrain(
+    enemyStats && {
+      ...enemyStats,
+      speed: (enemyStats.speed * bonus.enemy) / 100,
+    },
+    speed,
+  );
+  // The animation each rig is showing, so a new one starts only when the pose changes.
+  const shown = useRef<{ player: Pose | null; enemy: Pose | null }>({
+    player: null,
+    enemy: null,
+  });
+  // The latest props, read by the frame loop without restarting it.
+  const latest = useRef({ battle, running, onLand, speed, playerSpeed });
+  useLayoutEffect(() => {
+    latest.current = { battle, running, onLand, speed, playerSpeed };
+  });
 
   useLayoutEffect(() => {
     if (!playerRoot.current || !enemyRoot.current) return;
@@ -48,13 +114,18 @@ export default function BattleStage({
       queue.current = [];
       playing.current = false;
       onAnimating(false);
+      shown.current = { player: null, enemy: null };
       actors.player.setReducedMotion(preference?.matches ?? false);
       actors.enemy.setReducedMotion(preference?.matches ?? false);
       if (previous.current?.status === "won") {
         actors.player.wave();
         actors.enemy.defeated();
       }
-      if (previous.current?.status === "lost") {
+      if (
+        previous.current?.status === "lost" ||
+        (previous.current?.status === "summoning" &&
+          previous.current.activeProfessorId)
+      ) {
         actors.player.defeated();
         actors.enemy.wave();
       }
@@ -67,17 +138,15 @@ export default function BattleStage({
       const beat = queue.current.shift();
       if (!beat) {
         playing.current = false;
+        // The arena chooses each rig's animation again once the beats are over.
+        shown.current = { player: null, enemy: null };
         onAnimating(false);
         return;
       }
       playing.current = true;
       onAnimating(true);
       const next = () => pump.current();
-      if (beat === "playerAttack")
-        actors.player.attack(() => actors.enemy.hit(), next);
-      else if (beat === "enemyAttack")
-        actors.enemy.attack(() => actors.player.hit(), next);
-      else if (beat === "enemyHit") actors.enemy.hit(next);
+      if (beat === "enemyHit") actors.enemy.hit(next);
       else if (beat === "playerHit") actors.player.hit(next);
       else if (beat === "heal") actors.enemy.heal(next);
       else {
@@ -108,10 +177,89 @@ export default function BattleStage({
   }, [onAnimating]);
 
   useEffect(() => {
-    queue.current.push(...battleBeats(previous.current, battle));
+    queue.current.push(
+      ...battleBeats(previous.current, battle).filter(
+        (beat) => !LIVE_BEATS.has(beat),
+      ),
+    );
     previous.current = battle;
     if (!playing.current) pump.current();
   }, [battle]);
+
+  // The frame loop: moves both fighters, reports landed punches, and redraws the rigs.
+  useEffect(() => {
+    let frame = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      // A long gap (such as a hidden tab) counts as one short step, so nothing jumps.
+      const seconds = Math.min(Math.max(now - last, 0) / 1000, 0.05);
+      last = now;
+      const actors = controllers.current;
+      const {
+        battle: current,
+        running: live,
+        onLand: land,
+        speed: run,
+        playerSpeed: dash,
+      } = latest.current;
+      if (actors && live && !playing.current && seconds > 0 && brain.current) {
+        const command = brain.current.decide(
+          arena.current,
+          {
+            enemy: current.health,
+            enemyMax: current.maxHealth,
+            player: current.playerHealth,
+            playerMax: current.playerMaxHealth,
+          },
+          seconds,
+        );
+        const result = stepArena(
+          arena.current,
+          input.current,
+          command,
+          seconds,
+          run,
+          dash,
+        );
+        arena.current = result.state;
+        draw(actors);
+        for (const event of result.events) land(event.by);
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [input]);
+
+  /**
+   * Moves each rig to its fighter's place and starts a new animation when their pose changes.
+   * @param actors - The two rigs' controllers.
+   */
+  function draw(actors: {
+    player: StickmanController;
+    enemy: StickmanController;
+  }) {
+    for (const side of ["player", "enemy"] as const) {
+      const fighter = arena.current[side];
+      const root = side === "player" ? playerRoot.current : enemyRoot.current;
+      root?.setAttribute(
+        "transform",
+        `translate(${fighter.x - RIG_HALF_WIDTH} ${RIG_TOP - fighter.y}) scale(${RIG_SCALE})`,
+      );
+      if (root) root.dataset.tell = String(punchPhase(fighter) === "windup");
+      const actor = actors[side];
+      actor.face(fighter.facing);
+      const pose = poseOf(fighter);
+      if (pose === shown.current[side]) continue;
+      shown.current[side] = pose;
+      if (pose === "punch")
+        actor.punch(fighter.windup, ARENA.strike, ARENA.recover);
+      else if (pose === "hurt") actor.hit();
+      else if (pose === "jump") actor.jump();
+      else if (pose === "walk") actor.walk();
+      else actor.idle();
+    }
+  }
 
   return (
     <figure
@@ -119,11 +267,19 @@ export default function BattleStage({
     >
       <div className="battle-fighter-labels">
         <span>
-          <small>YOUR FIGHTER</small>
+          <small>
+            YOUR FIGHTER
+            {battle.playerLevel !== undefined && ` · LV. ${battle.playerLevel}`}
+            {bonus.player > 100 && ` · ${bonus.player}% STATS`}
+          </small>
           {player.name}
         </span>
         <span>
-          <small>WILD PROFESSOR</small>
+          <small>
+            WILD PROFESSOR
+            {typeof battle.level === "number" && ` · LV. ${battle.level}`}
+            {bonus.enemy > 100 && ` · ${bonus.enemy}% STATS`}
+          </small>
           {enemy.name}
         </span>
       </div>
@@ -161,7 +317,7 @@ export default function BattleStage({
           data-side="player"
           data-fighter={player.id}
           data-motion="idle"
-          transform="translate(154 37) scale(.48)"
+          transform={`translate(${ARENA.playerStart - RIG_HALF_WIDTH} ${RIG_TOP}) scale(${RIG_SCALE})`}
         >
           <StickmanRig parts={playerParts} fighter={player} />
         </g>
@@ -170,7 +326,7 @@ export default function BattleStage({
           data-side="enemy"
           data-fighter={enemy.id}
           data-motion="idle"
-          transform="translate(454 37) scale(.48)"
+          transform={`translate(${ARENA.enemyStart - RIG_HALF_WIDTH} ${RIG_TOP}) scale(${RIG_SCALE})`}
         >
           <StickmanRig parts={enemyParts} fighter={enemy} />
         </g>
@@ -197,7 +353,9 @@ export default function BattleStage({
               ? "Your fighter is down"
               : battle.status === "fled"
                 ? "Leaving the fight"
-                : "Your turn · ready your next attack"}
+                : battle.status === "summoning"
+                  ? "Combat paused · choose a professor to summon"
+                  : "← → or A D to move · ↑ or W to jump · J to attack. Jump when the professor winds up!"}
       </figcaption>
     </figure>
   );

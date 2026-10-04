@@ -33,7 +33,7 @@ test("built client serves only public build assets with existing headers and met
     const post = await fetch(origin, { method: "POST" });
     assert.equal(post.status, 405);
     assert.equal(post.headers.get("allow"), "GET, HEAD");
-    for (const path of ["/.env", "/package.json", "/src/client/main.tsx", "/.agent-teams/team.json", "/BackEnd/Persistence%20Layer/data/game.sqlite", "/assets/private.ts", "/assets/index.js.map", "/assets/%2e%2e%2f.env", "/assets/..%5c.env", "/unknown", "/FrontEnd/app.js"]) {
+    for (const path of ["/.env", "/package.json", "/src/server/storage/data/game.sqlite", "/src/server/storage/data/game.before-tokens.sqlite", "/src/server/modules/battles/domain/encounterBattle.ts", "/src/server/modules/battles/infrastructure/sqliteEncounterBattles.ts", "/src/client/main.tsx", "/.agent-teams/team.json", "/BackEnd/Persistence%20Layer/data/game.sqlite", "/assets/private.ts", "/assets/index.js.map", "/assets/%2e%2e%2f.env", "/assets/..%5c.env", "/unknown", "/FrontEnd/app.js"]) {
         assert.equal((await fetch(origin + path)).status, 404, path);
     }
 });

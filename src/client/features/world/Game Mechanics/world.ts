@@ -548,12 +548,22 @@ export const SPAWNING = {
   minDistance: 5,
   // ...and no further than this, so there is usually one roaming somewhere in sight.
   maxDistance: 16,
+  // Preserve the fighting version's wild-level rolls.
+  minLevel: 10,
+  maxLevel: 100,
 };
+
+/** Rolls an inclusive wild professor level, matching the server's WILD_LEVELS range. */
+export function pickSpawnLevel(random: () => number): number {
+  const range = SPAWNING.maxLevel - SPAWNING.minLevel + 1;
+  return SPAWNING.minLevel + Math.min(range - 1, Math.floor(random() * range));
+}
 
 /** A Legendary professor roaming somewhere on the map. */
 export type Spawn = {
   id: number;
   professorId: string;
+  level: number;
   x: number;
   y: number;
   // When they leave, in seconds on the game clock.

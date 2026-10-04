@@ -1,16 +1,13 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { CombatState } from "../Game Engine/encounterBattle.ts";
-import { httpError } from "../../src/server/http/http.ts";
-import type { CodingQuestion } from "../../src/server/modules/questions/infrastructure/gemini.ts";
+import { levelBonuses, levelsOf } from "../domain/encounterBattle.ts";
+import type { CombatState } from "../domain/encounterBattle.ts";
+import { httpError } from "../../../http/http.ts";
+import type { CodingQuestion } from "../../questions/infrastructure/gemini.ts";
 
 export type Battle = {
   id: string;
   professorId: string;
   professorName: string;
-  // The professor the player sent out, or null (or missing, in older battles) for the student.
-  fighterId?: string | null;
-  // True once the player has caught the defeated professor in a cage.
-  caught?: boolean;
   version: number;
   combat: CombatState;
   quiz: (CodingQuestion & { id: string; expiresAt: number }) | null;
@@ -132,19 +129,7 @@ export function changeBattle(
   }
 }
 
-/**
- * Marks a won battle's professor as caught. Call inside a transaction, together with the
- * inventory change, so a professor is never caught twice or without spending a cage.
- */
-export function markCaught(db: DatabaseSync, userId: string, battle: Battle): Battle {
-  const next = { ...battle, caught: true, version: battle.version + 1 };
-  db.prepare(
-    "UPDATE encounter_battles SET state_json = ? WHERE id = ? AND user_id = ?",
-  ).run(JSON.stringify(next), battle.id, userId);
-  return next;
-}
-
-/** Removes answers, checkpoint rolls, combat stats and unfinished-strike details from API replies. */
+/** Publishes the summon roster and HP, hiding answers, checkpoint rolls and unfinished strikes. */
 export function publicBattle(battle: Battle) {
   const { combat, quiz } = battle;
   const question =
@@ -161,11 +146,15 @@ export function publicBattle(battle: Battle) {
     version: battle.version,
     health: combat.health,
     maxHealth: combat.maxHealth,
-    fighterId: battle.fighterId ?? null,
-    caught: battle.caught ?? false,
     playerHealth: combat.playerHealth,
-    playerMaxHealth: combat.fighter?.health ?? 100,
-    playerMaxHealth: combat.playerMaxHealth,
+    playerMaxHealth: combat.playerStats?.health ?? 100,
+    activeProfessorId: combat.activeProfessorId ?? null,
+    fighters: combat.fighters ?? null,
+    // Both fighters' levels, and the percentage each one's level lifts their attack, defense,
+    // and speed (100 means no bonus). The arena uses the bonuses for running speed.
+    level: levelsOf(combat).enemy,
+    playerLevel: levelsOf(combat).player,
+    levelBonus: levelBonuses(combat),
     status: combat.status,
     eventNumber: combat.pendingEvent === null ? null : combat.pendingEvent + 1,
     eventsTriggered: combat.eventsTriggered,

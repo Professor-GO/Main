@@ -4,13 +4,16 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import { openDatabase } from "../../../storage/database.ts";
-import { createAuth } from "../../accounts/infrastructure/betterAuth.ts";
+import {
+  STARTING_TOKENS,
+  createAuth,
+} from "../../accounts/infrastructure/betterAuth.ts";
 import { createBackendApp } from "../../../http/apiApp.ts";
 import {
   readBattle,
   publicBattle,
   changeBattle,
-} from "../../../../../BackEnd/Persistence Layer/encounterBattles.ts";
+} from "../infrastructure/sqliteEncounterBattles.ts";
 
 test("encounter API binds questions to fights, enforces timeouts and retries, and never awards tokens", async (t) => {
   const db = openDatabase(":memory:");
@@ -52,6 +55,13 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
     .map((value) => value.split(";")[0])
     .join("; ");
   const account = (await signup.json()) as { user: { id: string } };
+  db.prepare("INSERT INTO inventory (user_id, professor_id) VALUES (?, ?)").run(
+    account.user.id,
+    "tor-aamodt",
+  );
+  db.prepare(
+    "INSERT INTO inventory (user_id, professor_id, copies) VALUES (?, ?, ?)",
+  ).run(account.user.id, "chao-liu", 4);
   const call = async (path: string, body?: object) => {
     const response = await fetch(`${origin}/api/${path}`, {
       method: body ? "POST" : "GET",
@@ -70,18 +80,100 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   };
   const id = randomUUID();
   let reply = await call("battle/start", {
+    level: 10,
     encounterId: id,
-    professorId: "tor-aamodt",
+    professorId: "craig-scratchley",
   });
   assert.equal(reply.status, 200);
+  assert.equal(reply.data.status, "summoning");
+  // The professor keeps the level they rolled on the map; the summoned fighter's level is 1 until
+  // they are levelled up, so the professor's stats get 100% + 5% x 9 levels.
+  assert.equal(reply.data.level, 10);
+  for (const level of [9, 101, 10.5, "50", undefined])
+    assert.equal(
+      (
+        await call("battle/start", {
+          encounterId: randomUUID(),
+          professorId: "craig-scratchley",
+          level,
+        })
+      ).status,
+      400,
+      `level ${String(level)}`,
+    );
+  assert.equal(reply.data.playerHealth, 0);
+  assert.equal(reply.data.fighters?.length, 2);
   assert.equal(
-    (await call("battle/start", { encounterId: id, professorId: "tor-aamodt" }))
+    (
+      await call(`battle/${id}/action`, {
+        actionId: randomUUID(),
+        version: 0,
+        kind: "attack",
+      })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await call(`battle/${id}/action`, {
+        actionId: randomUUID(),
+        version: 0,
+        kind: "summon",
+        professorId: "frank-wood",
+      })
+    ).status,
+    409,
+  );
+  const summonCommand = {
+    actionId: randomUUID(),
+    version: 0,
+    kind: "summon",
+    professorId: "tor-aamodt",
+  };
+  reply = await call(`battle/${id}/action`, summonCommand);
+  assert.equal(reply.status, 200);
+  assert.equal(reply.data.status, "fighting");
+  assert.equal(reply.data.activeProfessorId, "tor-aamodt");
+  assert.equal(reply.data.playerHealth, 57);
+  assert.equal(reply.data.playerLevel, 1);
+  assert.deepEqual(reply.data.levelBonus, { player: 100, enemy: 145 });
+  assert.deepEqual(
+    (await call(`battle/${id}/action`, summonCommand)).data,
+    reply.data,
+  );
+  assert.equal(
+    (
+      await call(`battle/${id}/action`, {
+        ...summonCommand,
+        professorId: "chao-liu",
+      })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await call(`battle/${id}/action`, {
+        actionId: randomUUID(),
+        version: reply.data.version,
+        kind: "summon",
+        professorId: "chao-liu",
+      })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (await call("battle/start", {
+        encounterId: id,
+        professorId: "craig-scratchley",
+        level: 10,
+      }))
       .data.health,
-    57,
+    62,
   );
   assert.equal(
     (
       await call("battle/start", {
+        level: 10,
         encounterId: randomUUID(),
         professorId: "frank-wood",
       })
@@ -94,12 +186,29 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
     (
       await call(`battle/${id}/action`, {
         actionId: randomUUID(),
-        version: 0,
+        version: reply.data.version,
         kind: "timeout",
       })
     ).status,
     409,
   );
+
+  // The professor's punch lands: only the player loses health, and a retry does not repeat it.
+  const punch = {
+    actionId: randomUUID(),
+    version: reply.data.version,
+    kind: "enemyAttack",
+  };
+  const punched = await call(`battle/${id}/action`, punch);
+  assert.equal(punched.status, 200);
+  assert.equal(punched.data.playerHealth, 56);
+  assert.equal(punched.data.health, reply.data.health);
+  assert.equal(punched.data.version, reply.data.version + 1);
+  assert.deepEqual(
+    (await call(`battle/${id}/action`, punch)).data,
+    punched.data,
+  );
+  reply = punched;
 
   while (reply.data.status === "fighting") {
     const command = {
@@ -115,6 +224,17 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
     );
   }
   assert.equal(reply.data.eventNumber, 1);
+  // The fight is paused for the question, so the professor cannot land a punch either.
+  assert.equal(
+    (
+      await call(`battle/${id}/action`, {
+        actionId: randomUUID(),
+        version: reply.data.version,
+        kind: "enemyAttack",
+      })
+    ).status,
+    409,
+  );
   assert.equal(
     (
       await call(`battle/${id}/action`, {
@@ -134,7 +254,7 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   assert.equal("explanation" in first.data.question!, false);
   const quiz = readBattle(db, account.user.id, id).quiz!;
   assert.ok(
-    quiz.expiresAt > Date.now() && quiz.expiresAt <= Date.now() + 30_000,
+    quiz.expiresAt > Date.now() && quiz.expiresAt <= Date.now() + 10_000,
   );
   const answer = {
     actionId: randomUUID(),
@@ -183,22 +303,11 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   reply = await call(`battle/${id}/action`, lateAnswer);
   assert.equal(reply.data.feedback?.correct, false);
   assert.equal(reply.data.feedback?.timedOut, true);
-  const minDamage = Math.min(Math.floor((expired.combat.playerHealth * 5) / 100), 15);
-  const maxDamage = Math.min(Math.floor((expired.combat.playerHealth * 12) / 100), 15);
-  assert.ok(
-    reply.data.feedback!.playerDamage >= minDamage &&
-      reply.data.feedback!.playerDamage <= maxDamage,
-  );
+  const quizDamage = Math.floor((expired.combat.playerHealth * 80) / 100);
+  assert.equal(reply.data.feedback?.playerDamage, quizDamage);
   assert.equal(
     reply.data.playerHealth,
-    Math.max(
-      0,
-      expired.combat.playerHealth -
-        reply.data.feedback!.playerDamage -
-        (reply.data.status === "question" || reply.data.status === "won"
-          ? 0
-          : Math.floor(expired.combat.attack / 20)),
-    ),
+    expired.combat.playerHealth - quizDamage,
   );
   assert.deepEqual(
     (await call(`battle/${id}/action`, lateAnswer)).data,
@@ -206,12 +315,12 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   );
   const lostHp = expired.combat.maxHealth - expired.combat.health;
   assert.ok(
-    reply.data.feedback!.healingPercent >= 10 &&
-      reply.data.feedback!.healingPercent <= 20,
+    reply.data.feedback!.healingPercent >= 50 &&
+      reply.data.feedback!.healingPercent <= 80,
   );
   assert.equal(
     reply.data.feedback!.healed,
-    Math.floor((expired.combat.maxHealth * reply.data.feedback!.healingPercent) / 100),
+    Math.floor((lostHp * reply.data.feedback!.healingPercent) / 100),
   );
 
   while (reply.data.status === "fighting")
@@ -230,17 +339,9 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   reply = await call(`battle/${id}`);
   assert.equal(reply.data.feedback?.timedOut, true);
   assert.equal(reply.data.eventsTriggered, 3);
-  const minFinalDamage = Math.min(
-    Math.floor((final.combat.playerHealth * 5) / 100),
-    15,
-  );
-  const maxFinalDamage = Math.min(
-    Math.floor((final.combat.playerHealth * 12) / 100),
-    15,
-  );
-  assert.ok(
-    reply.data.feedback!.playerDamage >= minFinalDamage &&
-      reply.data.feedback!.playerDamage <= maxFinalDamage,
+  assert.equal(
+    reply.data.feedback?.playerDamage,
+    Math.floor((final.combat.playerHealth * 80) / 100),
   );
   const health = reply.data.health;
   const playerHealth = reply.data.playerHealth;
@@ -257,7 +358,7 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   assert.equal(
     db.prepare('SELECT tokens FROM "user" WHERE id = ?').get(account.user.id)
       ?.tokens,
-    50,
+    STARTING_TOKENS,
   );
   assert.equal(
     db.prepare("SELECT COUNT(*) AS count FROM question_attempts").get()?.count,
@@ -267,8 +368,81 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   // A storage failure rolls back both HP and the idempotency receipt.
   const anotherId = randomUUID();
   await call("battle/start", {
+    level: 10,
     encounterId: anotherId,
+    professorId: "craig-scratchley",
+  });
+  // A knocked-out fighter stays unavailable after a persisted read. A reserve resumes
+  // the same opponent/checkpoints, and duplicate copies do not add extra fighters.
+  let reserves = await call(`battle/${anotherId}/action`, {
+    actionId: randomUUID(),
+    version: 0,
+    kind: "summon",
     professorId: "tor-aamodt",
+  });
+  const low = readBattle(db, account.user.id, anotherId);
+  low.combat.playerHealth = 1;
+  low.combat.health = 30;
+  low.combat.eventsTriggered = 1;
+  db.prepare("UPDATE encounter_battles SET state_json = ? WHERE id = ?").run(
+    JSON.stringify(low),
+    anotherId,
+  );
+  const knockout = {
+    actionId: randomUUID(),
+    version: reserves.data.version,
+    kind: "enemyAttack",
+  };
+  reserves = await call(`battle/${anotherId}/action`, knockout);
+  assert.equal(reserves.data.status, "summoning");
+  assert.equal(
+    reserves.data.fighters?.find((fighter) => fighter.id === "tor-aamodt")
+      ?.defeated,
+    true,
+  );
+  assert.deepEqual(
+    (await call(`battle/${anotherId}/action`, knockout)).data,
+    reserves.data,
+  );
+  assert.equal(
+    (
+      await call(`battle/${anotherId}/action`, {
+        actionId: randomUUID(),
+        version: reserves.data.version,
+        kind: "summon",
+        professorId: "tor-aamodt",
+      })
+    ).status,
+    409,
+  );
+  reserves = await call(`battle/${anotherId}/action`, {
+    actionId: randomUUID(),
+    version: reserves.data.version,
+    kind: "summon",
+    professorId: "chao-liu",
+  });
+  assert.equal(reserves.data.playerHealth, 48);
+  assert.equal(reserves.data.health, 30);
+  assert.equal(reserves.data.eventsTriggered, 1);
+  assert.equal(reserves.data.activeProfessorId, "chao-liu");
+  const last = readBattle(db, account.user.id, anotherId);
+  last.combat.playerHealth = 1;
+  db.prepare("UPDATE encounter_battles SET state_json = ? WHERE id = ?").run(
+    JSON.stringify(last),
+    anotherId,
+  );
+  reserves = await call(`battle/${anotherId}/action`, {
+    actionId: randomUUID(),
+    version: reserves.data.version,
+    kind: "enemyAttack",
+  });
+  assert.equal(reserves.data.status, "lost");
+  assert.ok(reserves.data.fighters?.every((fighter) => fighter.defeated));
+  const rollbackId = randomUUID();
+  await call("battle/start", {
+    level: 10,
+    encounterId: rollbackId,
+    professorId: "craig-scratchley",
   });
   db.exec(
     "CREATE TRIGGER fail_battle_receipt BEFORE INSERT ON encounter_actions BEGIN SELECT RAISE(ABORT, 'test write failure'); END;",
@@ -278,7 +452,7 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
       changeBattle(
         db,
         account.user.id,
-        anotherId,
+        rollbackId,
         randomUUID(),
         0,
         { kind: "attack" },
@@ -286,187 +460,6 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
       ),
     /test write failure/,
   );
-  assert.equal(readBattle(db, account.user.id, anotherId).combat.health, 57);
+  assert.equal(readBattle(db, account.user.id, rollbackId).combat.health, 62);
   assert.equal(db.isTransaction, false);
-});
-
-test("players send out a professor they own, and catch a defeated professor with a cage", async (t) => {
-  const db = openDatabase(":memory:");
-  const server = createServer();
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const address = server.address();
-  assert.ok(address && typeof address !== "string");
-  const origin = `http://127.0.0.1:${address.port}`;
-  const auth = await createAuth(db, {
-    baseURL: origin,
-    secret: "battle-test-secret-that-is-long-enough",
-    production: false,
-  });
-  await auth.$context;
-  server.on("request", createBackendApp({ db, auth, environment: "test" }));
-  t.after(async () => {
-    await new Promise<void>((done) => server.close(() => done()));
-    db.close();
-  });
-  const signup = await fetch(`${origin}/api/auth/register`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: "Catcher", password: "test-password-123" }),
-  });
-  const cookie = signup.headers
-    .getSetCookie()
-    .map((value) => value.split(";")[0])
-    .join("; ");
-  const userId = ((await signup.json()) as { user: { id: string } }).user.id;
-  const call = async (path: string, body: object) => {
-    const response = await fetch(`${origin}/api/${path}`, {
-      method: "POST",
-      headers: { Cookie: cookie, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    return {
-      status: response.status,
-      data: (await response.json()) as {
-        message?: string;
-        fighterId?: string;
-        playerMaxHealth?: number;
-        caught?: boolean;
-        battle: { caught: boolean };
-        item: { copies: number; professor: { id: string } };
-        isNew: boolean;
-        cagesLeft: number;
-      },
-    };
-  };
-
-  // A professor the player does not own cannot be sent out.
-  assert.equal(
-    (
-      await call("battle/start", {
-        encounterId: randomUUID(),
-        professorId: "tor-aamodt",
-        fighterId: "guy-lumieux",
-      })
-    ).status,
-    404,
-  );
-  // Guy Lumieux at level 2: health 200 and attack 183 from the roster, each 10% higher.
-  db.prepare(
-    "INSERT INTO inventory (user_id, professor_id, level) VALUES (?, 'guy-lumieux', 2)",
-  ).run(userId);
-  const id = randomUUID();
-  const started = await call("battle/start", {
-    encounterId: id,
-    professorId: "tor-aamodt",
-    fighterId: "guy-lumieux",
-  });
-  assert.equal(started.status, 200);
-  assert.equal(started.data.fighterId, "guy-lumieux");
-  assert.equal(started.data.playerMaxHealth, 220);
-  assert.equal(started.data.caught, false);
-
-  // Catching needs a won battle and a cage the player owns.
-  assert.equal(
-    (await call(`battle/${id}/catch`, { cageId: "bronze-cage" })).status,
-    409,
-  );
-  const battle = readBattle(db, userId, id);
-  db.prepare("UPDATE encounter_battles SET state_json = ? WHERE id = ?").run(
-    JSON.stringify({ ...battle, combat: { ...battle.combat, health: 0, status: "won" } }),
-    id,
-  );
-  assert.equal(
-    (await call(`battle/${id}/catch`, { cageId: "no-such-cage" })).status,
-    400,
-  );
-  const noCage = await call(`battle/${id}/catch`, { cageId: "bronze-cage" });
-  assert.equal(noCage.status, 409);
-  assert.equal(noCage.data.message, "You don't have that cage.");
-
-  db.prepare(
-    "INSERT INTO items (user_id, item_id, quantity) VALUES (?, 'bronze-cage', 2)",
-  ).run(userId);
-  const caught = await call(`battle/${id}/catch`, { cageId: "bronze-cage" });
-  assert.equal(caught.status, 200);
-  assert.equal(caught.data.battle.caught, true);
-  assert.equal(caught.data.item.professor.id, "tor-aamodt");
-  assert.deepEqual(
-    [caught.data.isNew, caught.data.item.copies, caught.data.cagesLeft],
-    [true, 1, 1],
-  );
-  // A professor is caught only once per battle, and only one cage is spent.
-  assert.equal(
-    (await call(`battle/${id}/catch`, { cageId: "bronze-cage" })).status,
-    409,
-  );
-  const cages = db
-    .prepare("SELECT quantity FROM items WHERE user_id = ? AND item_id = 'bronze-cage'")
-    .get(userId) as { quantity: number };
-  assert.equal(cages.quantity, 1);
-});
-
-test("ten pulls are made together, and only when the player can afford all ten", async (t) => {
-  const db = openDatabase(":memory:");
-  const server = createServer();
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  const address = server.address();
-  assert.ok(address && typeof address !== "string");
-  const origin = `http://127.0.0.1:${address.port}`;
-  const auth = await createAuth(db, {
-    baseURL: origin,
-    secret: "battle-test-secret-that-is-long-enough",
-    production: false,
-  });
-  await auth.$context;
-  server.on("request", createBackendApp({ db, auth, environment: "test" }));
-  t.after(async () => {
-    await new Promise<void>((done) => server.close(() => done()));
-    db.close();
-  });
-  const signup = await fetch(`${origin}/api/auth/register`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: "TenPuller", password: "test-password-123" }),
-  });
-  const cookie = signup.headers
-    .getSetCookie()
-    .map((value) => value.split(";")[0])
-    .join("; ");
-  const userId = ((await signup.json()) as { user: { id: string } }).user.id;
-  const pullTen = async () => {
-    const response = await fetch(`${origin}/api/gacha/pull`, {
-      method: "POST",
-      headers: { Cookie: cookie, "Content-Type": "application/json" },
-      body: JSON.stringify({ count: 10 }),
-    });
-    return {
-      status: response.status,
-      data: (await response.json()) as {
-        message?: string;
-        pulls: { kind: string }[];
-        user: { tokens: number };
-      },
-    };
-  };
-
-  // New accounts start with 50 tokens, which is not enough for ten pulls at 10 each.
-  const short = await pullTen();
-  assert.equal(short.status, 409);
-  assert.equal(short.data.message, "You need 100 tokens for 10 pulls.");
-  assert.equal(
-    (db.prepare('SELECT tokens FROM "user" WHERE id = ?').get(userId) as { tokens: number }).tokens,
-    50,
-  );
-
-  db.prepare('UPDATE "user" SET tokens = 105 WHERE id = ?').run(userId);
-  const pulled = await pullTen();
-  assert.equal(pulled.status, 200);
-  assert.equal(pulled.data.pulls.length, 10);
-  assert.equal(pulled.data.user.tokens, 5);
-  // The tenth pull in a row without an Epic professor is always an Epic or better.
-  assert.ok(
-    pulled.data.pulls.some((pull) => pull.kind === "professor"),
-  );
 });

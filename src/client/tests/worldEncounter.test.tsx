@@ -91,7 +91,7 @@ test("meeting a wild professor shows their card, and moving on lets them slip aw
     }),
   );
   expect(screen.getByRole("img", { name: /screen D2\./ })).toBeVisible();
-  act(() => game.onEncounter(tor));
+  act(() => game.onEncounter(tor, 42));
 
   const card = screen.getByRole("dialog", { name: "Tor Aamodt" });
   expect(card).toHaveTextContent("Epic · Computer Engineering");
@@ -100,11 +100,7 @@ test("meeting a wild professor shows their card, and moving on lets them slip aw
     "src",
     expect.stringContaining("tor_aamodt_front"),
   );
-  // Until the player's professors are known, they can only send out themselves.
-  expect(screen.getByRole("button", { name: "Yourself" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  expect(card).toHaveTextContent("Lv. 42");
   const keepExploring = screen.getByRole("button", { name: /Keep exploring/ });
   expect(screen.getByRole("button", { name: /Fight professor/ })).toHaveFocus();
 

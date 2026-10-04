@@ -57,12 +57,16 @@ type Stage =
   | { kind: "idle" }
   | (Queued & { kind: "pull"; since: number; colour: number; done: boolean });
 
-/** The cage a prize is shown in: gold for a Legendary professor, copper for the others. */
+/** Use the same rarity-to-cage presentation as the existing recruitment page. */
 function cageFor(pull: Pull): string {
   if (pull.kind === "cage")
     return CAGE_ART[pull.cage.id] ?? CAGE_ART["bronze-cage"];
   return CAGE_ART[
-    pull.professor.rarity === "Legendary" ? "golden-cage" : "bronze-cage"
+    pull.professor.rarity === "Legendary"
+      ? "golden-cage"
+      : pull.professor.rarity === "Epic"
+        ? "iron-cage"
+        : "bronze-cage"
   ];
 }
 

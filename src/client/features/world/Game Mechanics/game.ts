@@ -2,9 +2,6 @@
  * Runs the world: moves the player each frame, on the campus or inside a building; brings wild
  * professors onto the map and into the school, lets them wander, and takes them away again;
  * notices when the player meets one or stands somewhere they can press F; and redraws the screen.
- * Runs the campus map: moves the player each frame, brings Legendary professors onto the map,
- * moves them around, and takes them away again, notices when the player meets one, and redraws
- * the screen.
  */
 import {
   CANVAS_HEIGHT,
@@ -36,9 +33,9 @@ import {
   doorstep,
   isBlocked,
   isHome,
-  findEncounter,
   isChaser,
   moveSpawn,
+  pickSpawnLevel,
   pickSpawnPoint,
   screenOf,
   walk,
@@ -59,10 +56,13 @@ export type WildProfessor = {
   id: string;
   name: string;
   department: string;
-  rarity: string;
+  rarity?: string;
   // Their stats, which decide whether they chase the player. Without them they only wander.
   stats?: ProfessorStats;
 };
+
+/** Historical name retained for callers of the original battle implementation. */
+export type LegendaryProfessor = WildProfessor;
 
 /** Something the player can do by pressing F where they stand. */
 export type Interaction =
@@ -81,6 +81,7 @@ export type WorldHud = {
   place?: Place;
   // What pressing F would do where the player stands, if anything.
   prompt?: Interaction | null;
+  chasedBy?: string | null;
 };
 
 /** One stickman to show over the canvas this frame: the player, or a wild professor in view. */
@@ -93,8 +94,6 @@ export type ActorView = {
   y: number;
   walking: boolean;
   facing: Direction;
-  // The name of a professor chasing the player, or null if nobody is.
-  chasedBy: string | null;
 };
 
 /** Controls for a running map. */
@@ -120,7 +119,7 @@ export type WorldGameOptions = {
   // Called when the player changes screen or place, professors come or go, or the F prompt changes.
   onHud(hud: WorldHud): void;
   // Called when the player walks up to a professor. The player stands still until endEncounter().
-  onEncounter(professor: WildProfessor): void;
+  onEncounter(professor: WildProfessor, level: number): void;
   // Called every frame with the stickmen in view, for the layer drawn over the canvas.
   onActors?(actors: readonly ActorView[]): void;
   // Random numbers for spawning; defaults to Math.random.
@@ -212,6 +211,7 @@ export function startWorldGame(options: WorldGameOptions): WorldGame {
       id: nextSpawnId++,
       professorId: professor.id,
       name: professor.name,
+      level: pickSpawnLevel(random),
       place: inSchool ? "school" : "campus",
       ...point,
       targetX: point.x,
@@ -236,6 +236,30 @@ export function startWorldGame(options: WorldGameOptions): WorldGame {
     for (const wild of wilds) {
       wild.walking = false;
       if (wild.id === meeting) continue;
+      if (wild.place === "campus") {
+        const moved = moveSpawn(
+          map,
+          wild,
+          place === "campus" ? position : START,
+          time,
+          seconds,
+          random,
+        );
+        const dx = moved.x - wild.x;
+        const dy = moved.y - wild.y;
+        Object.assign(wild, moved);
+        wild.walking = dx !== 0 || dy !== 0;
+        if (wild.walking)
+          wild.facing =
+            Math.abs(dx) > Math.abs(dy)
+              ? dx > 0
+                ? "e"
+                : "w"
+              : dy > 0
+                ? "s"
+                : "n";
+        continue;
+      }
       if (time >= wild.thinkAt) {
         wild.thinkAt = time + 2 + random() * 4;
         // Now and then they stay where they are for a moment.
@@ -293,9 +317,10 @@ export function startWorldGame(options: WorldGameOptions): WorldGame {
       ),
       place,
       prompt,
-      screen: screenOf(position),
-      spawnScreens: spawns.map((professor) => screenOf(professor)),
-      chasedBy: spawns.find((professor) => professor.chasing)?.name ?? null,
+      chasedBy:
+        place === "campus"
+          ? (wilds.find((professor) => professor.chasing)?.name ?? null)
+          : null,
     };
     const signature = JSON.stringify(hud);
     if (signature === lastHud) return;
@@ -308,7 +333,7 @@ export function startWorldGame(options: WorldGameOptions): WorldGame {
     // A long gap (such as a hidden tab) counts as one short step, so nothing jumps.
     const seconds = Math.min((now - lastFrame) / 1000, 0.05);
     lastFrame = now;
-    time += seconds;
+    if (meeting === null && !paused) time += seconds;
 
     const direction = meeting === null && !paused ? directionFor(input) : null;
     walking = direction !== null;
@@ -320,16 +345,11 @@ export function startWorldGame(options: WorldGameOptions): WorldGame {
           : walkRoom(ROOMS[place], position, direction, seconds);
     }
     // Everyone holds still while the player is meeting a professor.
-    if (meeting === null) {
-      spawns = spawns.map((professor) => ({
-        ...moveSpawn(map, professor, position, time, seconds, random),
-        name: professor.name,
-      }));
+    if (meeting === null && !paused) {
+      wilds = wilds.filter((wild) => wild.leavesAt > time);
+      if (time >= nextSpawnAt) spawn();
+      wander(seconds);
     }
-
-    wilds = wilds.filter((wild) => wild.leavesAt > time || wild.id === meeting);
-    if (time >= nextSpawnAt) spawn();
-    wander(seconds);
     // The wild professors in the same place as the player.
     const here = wilds.filter((wild) =>
       place === "campus" ? wild.place === "campus" : wild.place === place,
@@ -344,7 +364,7 @@ export function startWorldGame(options: WorldGameOptions): WorldGame {
         const professor = professors.find(
           (candidate) => candidate.id === met.professorId,
         );
-        if (professor) onEncounter(professor);
+        if (professor) onEncounter(professor, met.level);
       }
     }
     const use =
@@ -423,6 +443,7 @@ export function startWorldGame(options: WorldGameOptions): WorldGame {
       input = next;
     },
     interact() {
+      if (meeting !== null || paused) return null;
       const action = prompt;
       if (action === "enter-home" || action === "enter-school") {
         place = action === "enter-home" ? "home" : "school";
@@ -433,14 +454,18 @@ export function startWorldGame(options: WorldGameOptions): WorldGame {
         place = "campus";
         facing = "s";
       }
+      input = NO_INPUT;
+      prompt = null;
       return action;
     },
     setPaused(next) {
       paused = next;
+      input = NO_INPUT;
     },
     endEncounter() {
       wilds = wilds.filter((wild) => wild.id !== meeting);
       meeting = null;
+      input = NO_INPUT;
     },
     stop() {
       cancelAnimationFrame(frame);

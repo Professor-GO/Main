@@ -400,74 +400,40 @@ function drawSpawn(
   context.ellipse(base.x, base.y, 30, 13, 0, 0, Math.PI * 2);
   context.fill();
 
-  drawNameTag(context, base, `★ ${spawn.name}`);
-}
-  const radius = 22;
-  const centre = {
-    x: base.x,
-    y: base.y - 38 - Math.sin(time * 2.4 + spawn.id) * 4,
-  };
-  const url = professorArt(spawn.professorId);
-  const image = url ? images(url) : undefined;
-  context.save();
+  drawNameTag(
+    context,
+    base,
+    spawn.chasing ? `! ${spawn.name} !` : `★ ${spawn.name}`,
+    spawn.chasing,
+  );
+  const level = `Lv. ${spawn.level}`;
+  context.font = "bold 10px 'Segoe UI', Arial, sans-serif";
+  const width = context.measureText(level).width + 12;
+  const tagY = base.y - ACTOR_HEIGHT - 34;
+  context.fillStyle = spawn.chasing
+    ? "rgb(122 22 16 / 0.92)"
+    : "rgb(37 75 63 / 0.92)";
   context.beginPath();
-  context.arc(centre.x, centre.y, radius, 0, Math.PI * 2);
-  context.fillStyle = "#fff6d6";
+  context.roundRect(base.x - width / 2, tagY - 7.5, width, 15, 7.5);
   context.fill();
-  if (image) {
-    // The pictures are portraits with the face near the top, so crop to the face.
-    context.clip();
-    const size = image.naturalWidth * 0.56;
-    context.drawImage(
-      image,
-      image.naturalWidth * 0.22,
-      image.naturalHeight * 0.02,
-      size,
-      size,
-      centre.x - radius,
-      centre.y - radius,
-      radius * 2,
-      radius * 2,
-    );
-  }
-  context.restore();
-  context.strokeStyle = spawn.chasing ? "#d62b1f" : "#e0a800";
-  context.lineWidth = 3;
-  context.beginPath();
-  context.arc(centre.x, centre.y, radius, 0, Math.PI * 2);
-  context.stroke();
-
-/**
- * Writes a name on a dark tag above where a stickman's head is.
- * @param context - The canvas.
- * @param base - Where the stickman's feet are, in pixels.
- * @param label - The name.
- */
+  context.fillStyle = "#fff6d6";
+  context.fillText(level, base.x, tagY);
+}
+/** Writes a name above the incoming stickman actor assets. */
 function drawNameTag(
   context: CanvasRenderingContext2D,
   base: Point,
   label: string,
+  chasing = false,
 ): void {
   context.font = "bold 11px 'Segoe UI', Arial, sans-serif";
   context.textAlign = "center";
   context.textBaseline = "middle";
   const width = context.measureText(label).width + 14;
   const tagY = base.y - ACTOR_HEIGHT - 16;
-  context.fillStyle = "rgb(37 75 63 / 0.92)";
-  for (const offset of [0, Math.PI]) {
-    const angle = time * 1.8 + offset;
-    context.fillText(
-      "✦",
-      centre.x + Math.cos(angle) * 31,
-      centre.y + Math.sin(angle) * 12,
-    );
-  }
-
-  // Their name on a dark tag above the token.
-  const label = spawn.chasing ? `! ${spawn.name} !` : `★ ${spawn.name}`;
-  context.font = "bold 11px 'Segoe UI', Arial, sans-serif";
-  const width = context.measureText(label).width + 14;
-  context.fillStyle = spawn.chasing ? "rgb(122 22 16 / 0.92)" : "rgb(37 75 63 / 0.92)";
+  context.fillStyle = chasing
+    ? "rgb(122 22 16 / 0.92)"
+    : "rgb(37 75 63 / 0.92)";
   context.beginPath();
   context.roundRect(base.x - width / 2, tagY - 9, width, 18, 9);
   context.fill();

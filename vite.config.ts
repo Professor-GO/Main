@@ -59,8 +59,12 @@ export default defineConfig(() => {
           fileURLToPath(new URL("./Assets/gacha", import.meta.url)),
           fileURLToPath(new URL("./Assets/fighting_scene", import.meta.url)),
           fileURLToPath(new URL("./Assets/stickman", import.meta.url)),
-          fileURLToPath(new URL("./Assets/gacha", import.meta.url)),
           fileURLToPath(new URL("./Assets/battle/heads", import.meta.url)),
+          // The enemy professor AI runs in the battle arena (src/client/features/battle/enemyBrain.ts).
+          // Only this pure shared file is served; server code and stored data stay private.
+          fileURLToPath(
+            new URL("./src/shared/battle/enemyProfessorAi.ts", import.meta.url),
+          ),
         ],
       },
     },

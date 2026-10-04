@@ -3,14 +3,11 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { initializeQuestions } from "../modules/questions/infrastructure/sqliteQuestions.ts";
-import { initializeBattles } from "../../../BackEnd/Persistence Layer/encounterBattles.ts";
+import { initializeBattles } from "../modules/battles/infrastructure/sqliteEncounterBattles.ts";
 
 const schema = readFileSync(new URL("./schema.sql", import.meta.url), "utf8");
 export const DEFAULT_DATABASE_PATH = fileURLToPath(
-  new URL(
-    "../../../BackEnd/Persistence Layer/data/game.sqlite",
-    import.meta.url,
-  ),
+  new URL("./data/game.sqlite", import.meta.url),
 );
 
 /**

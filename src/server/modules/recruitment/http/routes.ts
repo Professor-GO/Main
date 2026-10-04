@@ -23,9 +23,6 @@ export function gachaRoutes({ db, auth }: AppContext) {
         response.json({ cost: PULL_COST, professors: GACHA_POOL, cages: GACHA_CAGES });
     });
 
-    // Spends PULL_COST tokens to pull a professor or a cage. 409 if the player has too few tokens.
-    // With `{ "count": 10 }` it makes ten pulls at once, but only if the player can afford all ten,
-    // and replies with `{ pulls, user }` instead.
     // The logged-in player's pity, and how many pulls the Epic-or-Legendary guarantee takes.
     router.route("/gacha/pity").all(allowMethods("GET")).get(async (request, response) => {
         const user = await requireUser(auth, request);
@@ -33,6 +30,8 @@ export function gachaRoutes({ db, auth }: AppContext) {
     });
 
     // Spends PULL_COST tokens to pull a professor in their cage. 409 if the player has too few tokens.
+    // With `{ "count": 10 }` it makes ten pulls at once, but only if the player can afford all ten,
+    // and replies with `{ pulls, user }` instead.
     router.route("/gacha/pull").all(allowMethods("POST")).post(checkOrigin, jsonBody, async (request, response) => {
         const user = await requireUser(auth, request);
         if (request.body.count === MULTI_PULL) {
@@ -47,7 +46,8 @@ export function gachaRoutes({ db, auth }: AppContext) {
                 balance = tokens;
                 pulls.push(prize);
             }
-            return response.json({ pulls, user: publicUser({ ...user, tokens: balance }) });
+            response.json({ pulls, user: publicUser({ ...user, tokens: balance }) });
+            return;
         }
         const pull = pullGacha(db, user.id);
         if (!pull) throw httpError(409, `You need ${PULL_COST} tokens to recruit a professor.`);

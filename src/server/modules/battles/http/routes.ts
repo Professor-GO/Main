@@ -1,17 +1,21 @@
 import { randomUUID } from "node:crypto";
 import {
   createCombat,
+  prepareSummons,
+  summon,
+  enemyStrike,
   resolveQuiz,
   strike,
-} from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
+  WILD_LEVELS,
+  WILD_RARITIES,
+} from "../domain/encounterBattle.ts";
 import {
   changeBattle,
   installQuiz,
-  markCaught,
   publicBattle,
   readBattle,
   saveBattle,
-} from "../../../../../BackEnd/Persistence Layer/encounterBattles.ts";
+} from "../infrastructure/sqliteEncounterBattles.ts";
 import type { AppContext } from "../../../http/apiApp.ts";
 import {
   allowMethods,
@@ -25,21 +29,17 @@ import {
   requireUser,
 } from "../../accounts/http/session.ts";
 import {
-  GACHA_CAGES,
   GACHA_POOL,
   inventoryFor,
 } from "../../recruitment/application/recruitment.ts";
-import { catchWithCage } from "../../recruitment/infrastructure/sqliteInventory.ts";
-import { professorFighter } from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
 import { createCodingQuestion } from "../../questions/infrastructure/gemini.ts";
-import type { Battle } from "../../../../../BackEnd/Persistence Layer/encounterBattles.ts";
-import { STUDENT_STATS } from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
+import type { Battle } from "../infrastructure/sqliteEncounterBattles.ts";
 
 const uuid = (value: unknown): value is string =>
   typeof value === "string" &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value);
 
-/** Resolves a private question, including the server-enforced 60-second deadline. */
+/** Resolves a private question, including the server-enforced ten-second deadline. */
 function answerBattle(battle: Battle, selectedIndex: number | null): Battle {
   if (battle.combat.status !== "question" || !battle.quiz)
     throw httpError(409, "There is no question to answer.");
@@ -100,35 +100,41 @@ export function battleRoutes({ db, auth }: AppContext) {
     .all(allowMethods("POST"))
     .post(checkOrigin, rateLimiter(30), jsonBody, async (request, response) => {
       const user = await requireUser(auth, request);
-      const { encounterId, professorId, fighterId } = request.body;
+      const { encounterId, professorId, level } = request.body;
       if (!uuid(encounterId)) throw httpError(400, "Choose a valid encounter.");
-      // Only Rare and Epic professors roam wild; the others are recruited at the gashapon machine.
+      // The level the professor rolled when they appeared on the campus map.
+      if (
+        !Number.isInteger(level) ||
+        level < WILD_LEVELS.min ||
+        level > WILD_LEVELS.max
+      )
+        throw httpError(
+          400,
+          `Choose a level from ${WILD_LEVELS.min} to ${WILD_LEVELS.max}.`,
+        );
       const professor = GACHA_POOL.find(
         (entry) =>
-          entry.id === professorId && ["Rare", "Epic"].includes(entry.rarity),
+          entry.id === professorId && WILD_RARITIES.includes(entry.rarity),
       );
       if (!professor)
         throw httpError(400, "This professor cannot appear in the overworld.");
-      // The player may send out a professor they own; otherwise the student fights.
-      let fighter;
-      if (fighterId !== undefined && fighterId !== null) {
-        const owned = inventoryFor(db, user.id).find(
-          (item) => item.professor.id === fighterId,
-        );
-        if (!owned) throw httpError(404, "You don't have that professor yet.");
-        fighter = professorFighter(owned.professor.stats, owned.level);
-      }
-      const playerStats = STUDENT_STATS;
       response.json(
         publicBattle(
           saveBattle(db, user.id, {
             id: encounterId,
             professorId: professor.id,
             professorName: professor.name,
-            fighterId: fighter ? fighterId : null,
             version: 0,
-            combat: createCombat(professor.stats, Math.random, fighter),
-            combat: createCombat(professor.stats, undefined, playerStats),
+            combat: prepareSummons(
+              createCombat(professor.stats, Math.random, level),
+              inventoryFor(db, user.id).map((item) => ({
+                id: item.professor.id,
+                name: item.professor.name,
+                level: item.level,
+                stats: item.professor.stats,
+                defeated: false,
+              })),
+            ),
             quiz: null,
             feedback: null,
           }),
@@ -162,7 +168,7 @@ export function battleRoutes({ db, auth }: AppContext) {
             installQuiz(db, user.id, battle, {
               ...question,
               id: randomUUID(),
-              expiresAt: Date.now() + 30_000,
+              expiresAt: Date.now() + 10_000,
             });
           })();
           generating.set(key, pending);
@@ -172,58 +178,36 @@ export function battleRoutes({ db, auth }: AppContext) {
       }
       response.json(publicBattle(settleExpired(db, user.id, id)));
     });
-  // Throws a cage at a defeated professor to catch them. The cage is spent and the professor
-  // joins the player's inventory, both in one transaction, and only once per battle.
-  router
-    .route("/battle/:id/catch")
-    .all(allowMethods("POST"))
-    .post(checkOrigin, rateLimiter(30), jsonBody, async (request, response) => {
-      const user = await requireUser(auth, request);
-      const id = String(request.params.id);
-      const { cageId } = request.body;
-      if (!GACHA_CAGES.some((cage) => cage.id === cageId))
-        throw httpError(400, "Choose one of your cages.");
-      db.exec("BEGIN IMMEDIATE");
-      try {
-        const battle = readBattle(db, user.id, id);
-        if (battle.combat.status !== "won")
-          throw httpError(409, "Defeat the professor before trying to catch them.");
-        if (battle.caught)
-          throw httpError(409, "You have already caught this professor.");
-        const caught = catchWithCage(db, user.id, cageId, battle.professorId);
-        if (!caught) throw httpError(409, "You don't have that cage.");
-        const next = markCaught(db, user.id, battle);
-        db.exec("COMMIT");
-        const item = inventoryFor(db, user.id).find(
-          (owned) => owned.professor.id === battle.professorId,
-        );
-        response.json({
-          battle: publicBattle(next),
-          item,
-          isNew: caught.row.copies === 1,
-          cagesLeft: caught.cagesLeft,
-        });
-      } catch (error) {
-        if (db.isTransaction) db.exec("ROLLBACK");
-        throw error;
-      }
-    });
   router
     .route("/battle/:id/action")
     .all(allowMethods("POST"))
     .post(
       checkOrigin,
-      rateLimiter(120),
+      // Real-time fights send one action per landed punch, from both fighters.
+      rateLimiter(240),
       jsonBody,
       async (request, response) => {
         const user = await requireUser(auth, request);
-        const { actionId, version, kind, questionId, selectedIndex } =
-          request.body;
+        const {
+          actionId,
+          version,
+          kind,
+          questionId,
+          selectedIndex,
+          professorId,
+        } = request.body;
         if (
           !uuid(actionId) ||
           !Number.isSafeInteger(version) ||
           version < 0 ||
-          !["attack", "answer", "timeout", "flee"].includes(kind)
+          ![
+            "summon",
+            "attack",
+            "enemyAttack",
+            "answer",
+            "timeout",
+            "flee",
+          ].includes(kind)
         )
           throw httpError(400, "Choose a valid battle action.");
         if (
@@ -234,10 +218,13 @@ export function battleRoutes({ db, auth }: AppContext) {
             selectedIndex > 3)
         )
           throw httpError(400, "Choose one of the four answers.");
+        if (kind === "summon" && typeof professorId !== "string")
+          throw httpError(400, "Choose a professor to summon.");
         const command = {
           kind,
           version,
           ...(kind === "answer" ? { questionId, selectedIndex } : {}),
+          ...(kind === "summon" ? { professorId } : {}),
         };
         const result = changeBattle(
           db,
@@ -247,6 +234,23 @@ export function battleRoutes({ db, auth }: AppContext) {
           version,
           command,
           (battle) => {
+            if (kind === "summon") {
+              if (
+                battle.combat.status !== "summoning" ||
+                !battle.combat.fighters?.some(
+                  (fighter) => fighter.id === professorId && !fighter.defeated,
+                )
+              )
+                throw httpError(
+                  409,
+                  "Choose an available professor from your collection.",
+                );
+              return {
+                ...battle,
+                combat: summon(battle.combat, professorId),
+                feedback: null,
+              };
+            }
             if (kind === "attack") {
               if (battle.combat.status !== "fighting")
                 throw httpError(
@@ -260,8 +264,22 @@ export function battleRoutes({ db, auth }: AppContext) {
                 feedback: null,
               };
             }
+            if (kind === "enemyAttack") {
+              if (battle.combat.status !== "fighting")
+                throw httpError(409, "The fight is paused.");
+              return {
+                ...battle,
+                combat: enemyStrike(battle.combat),
+                quiz: null,
+                feedback: null,
+              };
+            }
             if (kind === "flee") {
-              if (!["fighting", "question"].includes(battle.combat.status))
+              if (
+                !["summoning", "fighting", "question"].includes(
+                  battle.combat.status,
+                )
+              )
                 throw httpError(409, "This battle has ended.");
               return {
                 ...battle,

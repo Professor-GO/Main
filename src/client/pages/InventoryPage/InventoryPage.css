@@ -1,0 +1,59 @@
+.inventory-page {
+  max-width: 1000px;
+}
+.inventory-page > .eyebrow {
+  margin-top: 28px;
+}
+.inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  gap: 18px;
+  margin-top: 24px;
+}
+.inventory-card,
+.inventory-empty {
+  padding: 22px;
+  border: 1px solid #b9cba5;
+  border-radius: 12px;
+  background: #f0f4e9;
+}
+.inventory-card > img,
+.inventory-portrait-placeholder {
+  display: block;
+  width: 100%;
+  height: 150px;
+  object-fit: contain;
+}
+.inventory-portrait-placeholder {
+  display: grid;
+  place-items: center;
+  font-size: 60px;
+  color: var(--green);
+}
+.inventory-card h2 {
+  font-size: 20px;
+  overflow-wrap: anywhere;
+}
+.inventory-card p {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.inventory-card dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.inventory-card dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.inventory-card dt {
+  text-transform: capitalize;
+  color: var(--muted);
+  font-size: 12px;
+}
+.inventory-card dd {
+  margin: 0;
+  font-weight: bold;
+}

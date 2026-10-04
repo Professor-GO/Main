@@ -45,6 +45,10 @@
 .battle-stage [data-motion="heal"] {
   filter: drop-shadow(0 0 6px #c6f78b);
 }
+/* A fighter drawing back a punch glows red: the professor's tell, time to jump. */
+.battle-stage [data-tell="true"] {
+  filter: drop-shadow(0 0 10px #ff5a4a);
+}
 @media (max-width: 560px) {
   .battle-fighter-labels {
     padding: 10px 12px 0;

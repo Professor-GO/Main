@@ -26,6 +26,7 @@ import {
   isHome,
   isUnderCanopy,
   moveSpawn,
+  pickSpawnLevel,
   pickSpawnPoint,
   screenName,
   screenOf,
@@ -355,6 +356,7 @@ test("the player meets a Legendary professor by walking up to them, even across 
   const spawn = {
     id: 1,
     professorId: "chao-liu",
+    level: 10,
     x: 0.3,
     y: 20,
     leavesAt: 100,
@@ -389,6 +391,7 @@ function roamer(at: Point, chaser: boolean): Spawn {
   return {
     id: 1,
     professorId: "frank-wood",
+    level: 10,
     ...at,
     leavesAt: 1000,
     chaser,
@@ -528,4 +531,19 @@ test("home is safe: a chaser gives up on a player at home and never follows them
   );
   assert.equal(after.chasing, false);
   assert.equal(findEncounter(player, [after]), undefined);
+});
+
+test("Legendary professors appear at level 10 to 100, every level possible", () => {
+  assert.equal(pickSpawnLevel(() => 0), SPAWNING.minLevel);
+  assert.equal(pickSpawnLevel(() => 0.999999), SPAWNING.maxLevel);
+  assert.equal(SPAWNING.minLevel, 10);
+  assert.equal(SPAWNING.maxLevel, 100);
+  const seen = new Set<number>();
+  const random = seededRandom(9);
+  for (let roll = 0; roll < 5000; roll++) {
+    const level = pickSpawnLevel(random);
+    assert.ok(Number.isInteger(level) && level >= 10 && level <= 100, `level ${level}`);
+    seen.add(level);
+  }
+  assert.equal(seen.size, 91);
 });

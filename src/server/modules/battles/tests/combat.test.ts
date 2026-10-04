@@ -2,9 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createCombat,
+  enemyStrike,
   resolveQuiz,
   strike,
-} from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
+} from "../domain/encounterBattle.ts";
 
 test("checkpoints fall inside both health bands and at 10% for every current professor HP", () => {
   for (const health of [48, 50, 57, 62, 67, 89, 200]) {
@@ -23,16 +24,19 @@ test("checkpoints fall inside both health bands and at 10% for every current pro
   }
 });
 
-test("strikes use floor attack/defense and counterattacks clamp player health at zero", () => {
+test("strikes use floor attack/defense and professor punches clamp player health at zero", () => {
   let state = createCombat({ health: 100, attack: 2000, defense: 80 }, () => 0);
   state = strike(state);
   assert.equal(state.health, 93);
+  assert.equal(state.playerHealth, 100);
+  state = enemyStrike(state);
   assert.equal(state.playerHealth, 0);
   assert.equal(state.status, "lost");
   assert.throws(() => strike(state));
+  assert.throws(() => enemyStrike(state));
 });
 
-test("wrong answers heal 10–20% of max HP rounded down; correct answers do not heal", () => {
+test("wrong answers heal 50–80% of current lost HP rounded down; correct answers do not heal", () => {
   const state = {
     ...createCombat({ health: 100, attack: 0, defense: 80 }, () => 0),
     health: 67,
@@ -41,9 +45,9 @@ test("wrong answers heal 10–20% of max HP rounded down; correct answers do not
     eventsTriggered: 1,
   };
   assert.equal(resolveQuiz(state, true).state.health, 67);
-  assert.equal(resolveQuiz(state, false, () => 0).healed, 10);
-  assert.equal(resolveQuiz(state, false, () => 0.999999).healed, 20);
-  assert.equal(resolveQuiz(state, false, () => 0.999999).state.health, 87);
+  assert.equal(resolveQuiz(state, false, () => 0).healed, 16);
+  assert.equal(resolveQuiz(state, false, () => 0.999999).healed, 26);
+  assert.equal(resolveQuiz(state, false, () => 0.999999).state.health, 93);
   assert.equal(state.health, 67);
 });
 

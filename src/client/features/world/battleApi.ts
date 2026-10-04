@@ -1,20 +1,27 @@
- Can’t automatically merge. Don’t worry, you can still create the pull request. import { ApiError, record, request } from "../../api/request";
+import { ApiError, record, request } from "../../api/request";
 import type { PublicQuestion } from "../questions/types";
 
 export type BattleView = {
   id: string;
   professorId: string;
   professorName: string;
-  // The professor the player sent out, or null (or missing) if the student fights.
-  fighterId?: string | null;
-  // True once the defeated professor has been caught in a cage.
-  caught?: boolean;
   version: number;
   health: number;
   maxHealth: number;
   playerHealth: number;
   playerMaxHealth: number;
-  status: "fighting" | "question" | "won" | "lost" | "fled";
+  status: "summoning" | "fighting" | "question" | "won" | "lost" | "fled";
+  activeProfessorId?: string | null;
+  fighters?: SummonFighter[] | null;
+  /** The wild professor's level; null for a battle saved before levels. */
+  level?: number | null;
+  /** The summoned fighter's level (1 for the student). */
+  playerLevel?: number;
+  /**
+   * How much each fighter's level lifts their attack, defense, and speed, as a whole percentage:
+   * 100 is no bonus, and only the higher-level fighter gets one.
+   */
+  levelBonus?: { player: number; enemy: number };
   eventNumber: number | null;
   eventsTriggered: number;
   question: (PublicQuestion & { expiresAt: number }) | null;
@@ -32,12 +39,18 @@ export type BattleView = {
 export type BattleAction = {
   actionId: string;
   version: number;
-  kind: "attack" | "answer" | "timeout" | "flee";
+  // "attack" is the player's punch landing, "enemyAttack" the professor's.
+  kind: "summon" | "attack" | "enemyAttack" | "answer" | "timeout" | "flee";
+  professorId?: string;
   questionId?: string;
   selectedIndex?: number;
 };
 
 export type OwnedFighter = { id: string; name: string; level: number };
+export type SummonFighter = OwnedFighter & {
+  stats: { health: number; attack: number; defense: number; speed: number };
+  defeated: boolean;
+};
 
 /** Lists only professors actually owned by this account for the fighter selector. */
 export async function loadOwnedFighters(): Promise<OwnedFighter[]> {
@@ -78,13 +91,57 @@ function parseBattle(value: unknown): BattleView {
     !integer(b.playerHealth) ||
     !integer(b.playerMaxHealth) ||
     !b.playerMaxHealth ||
-    !["fighting", "question", "won", "lost", "fled"].includes(
+    !["summoning", "fighting", "question", "won", "lost", "fled"].includes(
       String(b.status),
     ) ||
     !integer(b.eventsTriggered) ||
     (b.eventNumber !== null && !integer(b.eventNumber))
   )
     throw new ApiError("Invalid battle response.");
+  if (
+    b.activeProfessorId !== undefined &&
+    b.activeProfessorId !== null &&
+    typeof b.activeProfessorId !== "string"
+  )
+    throw new ApiError("Invalid summoned professor.");
+  // Levels and level bonuses set running speeds, so they must be real whole numbers.
+  if (
+    (b.level !== undefined && b.level !== null && !integer(b.level)) ||
+    (b.playerLevel !== undefined && !integer(b.playerLevel))
+  )
+    throw new ApiError("Invalid battle levels.");
+  if (b.levelBonus !== undefined) {
+    const bonus = record(b.levelBonus);
+    if (
+      !integer(bonus.player) ||
+      (bonus.player as number) < 100 ||
+      !integer(bonus.enemy) ||
+      (bonus.enemy as number) < 100
+    )
+      throw new ApiError("Invalid battle levels.");
+  }
+  if (b.fighters !== undefined && b.fighters !== null) {
+    if (!Array.isArray(b.fighters))
+      throw new ApiError("Invalid battle collection.");
+    for (const value of b.fighters) {
+      const fighter = record(value),
+        stats = record(fighter.stats);
+      if (
+        typeof fighter.id !== "string" ||
+        typeof fighter.name !== "string" ||
+        !integer(fighter.level) ||
+        !fighter.level ||
+        typeof fighter.defeated !== "boolean" ||
+        !integer(stats.health) ||
+        !stats.health ||
+        !integer(stats.attack) ||
+        !integer(stats.defense) ||
+        !stats.defense ||
+        !integer(stats.speed)
+      )
+        throw new ApiError("Invalid battle collection.");
+    }
+  }
   if (b.question !== null) {
     const q = record(b.question);
     if (
@@ -117,55 +174,15 @@ function parseBattle(value: unknown): BattleView {
   return b as BattleView;
 }
 
-/**
- * Starts an encounter once, with a stable id for explicit retries.
- * @param fighterId - The professor the player sends out, or null to fight as the student.
- */
+/** Starts an encounter once, with a stable id for explicit retries. */
 export async function startBattle(
   encounterId: string,
   professorId: string,
-  fighterId: string | null = null,
-  playerProfessorId?: string,
+  level: number,
 ): Promise<BattleView> {
   return parseBattle(
-    await request("/api/battle/start", {
-      encounterId,
-      professorId,
-      ...(fighterId ? { fighterId } : {}),
-      ...(playerProfessorId ? { playerProfessorId } : {}),
-    }),
+    await request("/api/battle/start", { encounterId, professorId, level }),
   );
-}
-/**
- * Throws a cage at a defeated professor to catch them.
- * @returns The battle afterwards, whether the professor is new to the player, how many copies
- * of them the player now has, and how many of that cage are left.
- */
-export async function catchProfessor(
-  id: string,
-  cageId: string,
-): Promise<{
-  battle: BattleView;
-  isNew: boolean;
-  copies: number;
-  cagesLeft: number;
-}> {
-  const reply = record(
-    await request(`/api/battle/${encodeURIComponent(id)}/catch`, { cageId }),
-  );
-  const copies = record(reply.item).copies;
-  if (
-    typeof reply.isNew !== "boolean" ||
-    !Number.isSafeInteger(copies) ||
-    !Number.isSafeInteger(reply.cagesLeft)
-  )
-    throw new ApiError("Invalid catch result.");
-  return {
-    battle: parseBattle(reply.battle),
-    isNew: reply.isNew,
-    copies: copies as number,
-    cagesLeft: reply.cagesLeft as number,
-  };
 }
 /** Loads authoritative battle state after a conflict or a lost reply. */
 export async function loadBattle(id: string): Promise<BattleView> {

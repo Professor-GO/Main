@@ -1,5 +1,6 @@
 import { ApiError, record, request } from "../../api/request";
 import type { WildProfessor } from "./Game Mechanics/game";
+import type { ProfessorStats } from "./Game Mechanics/world";
 
 const INVALID = "Something went wrong. Please try again.";
 
@@ -36,8 +37,7 @@ function count(value: unknown): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0)
     throw new ApiError(INVALID);
   return value as number;
-import type { LegendaryProfessor } from "./Game Mechanics/game";
-import type { ProfessorStats } from "./Game Mechanics/world";
+}
 
 /**
  * Reads a professor's stats from the pool, if they are all there.
@@ -91,14 +91,17 @@ export async function loadInventory(): Promise<{
   cages: OwnedCage[];
 }> {
   const reply = record(await request("/api/inventory"));
-  if (!Array.isArray(reply.inventory) || !Array.isArray(reply.cages))
+  if (
+    !Array.isArray(reply.inventory) ||
+    (reply.cages !== undefined && !Array.isArray(reply.cages))
+  )
     throw new ApiError(INVALID);
   return {
     professors: reply.inventory.map((entry: unknown) => {
       const item = record(entry);
       return { ...parseProfessor(item.professor), level: count(item.level) };
     }),
-    cages: reply.cages.map((entry: unknown) => {
+    cages: (reply.cages ?? []).map((entry: unknown) => {
       const owned = record(entry);
       const cage = record(owned.cage);
       if (typeof cage.id !== "string" || typeof cage.name !== "string")
@@ -111,7 +114,8 @@ export async function loadInventory(): Promise<{
 /** Checks one pull in a server reply. */
 function parsePull(value: unknown): Pull {
   const pull = record(value);
-  if (pull.kind === "professor") {
+  // The existing recruitment API returns a professor as { item, isNew, pity, user }.
+  if (pull.kind === "professor" || pull.item !== undefined) {
     const item = record(pull.item);
     return {
       kind: "professor",

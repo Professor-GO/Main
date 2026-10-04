@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { errorMessage } from "../../api/request";
-import { loadInventory, loadWildProfessors } from "../../features/world/api";
-import type { OwnedProfessor } from "../../features/world/api";
+import { loadWildProfessors } from "../../features/world/api";
 import { professorArt } from "../../features/world/art";
 import { startWorldGame } from "../../features/world/Game Mechanics/game";
 import type {
@@ -23,7 +22,6 @@ import "./WorldPage.css";
 import ActorLayer from "./ActorLayer";
 import type { ActorLayerHandle } from "./ActorLayer";
 import BattleEncounter from "./BattleEncounter";
-import type { Fighter } from "./BattleEncounter";
 import Gashapon from "./Gashapon";
 import QuestionPage from "../QuestionPage/QuestionPage";
 
@@ -98,11 +96,10 @@ export default function WorldPage({ onBack, onTokens }: WorldPageProps) {
     spawnScreens: [],
     chasedBy: null,
   });
-  const [encounter, setEncounter] = useState<WildProfessor | null>(null);
+  const [encounter, setEncounter] = useState<
+    (WildProfessor & { level: number }) | null
+  >(null);
   const [fighting, setFighting] = useState(false);
-  // The player's professors, loaded when they meet a wild one, and who they chose to send out.
-  const [team, setTeam] = useState<OwnedProfessor[]>([]);
-  const [fighter, setFighter] = useState<Fighter>(null);
   const [gashapon, setGashapon] = useState(false);
   const [quiz, setQuiz] = useState(false);
 
@@ -135,7 +132,7 @@ export default function WorldPage({ onBack, onTokens }: WorldPageProps) {
       canvas: canvas.current,
       professors,
       onHud: setHud,
-      onEncounter: setEncounter,
+      onEncounter: (professor, level) => setEncounter({ ...professor, level }),
       onActors: (cast) => actors.current?.frame(cast),
     });
     game.current = running;
@@ -179,23 +176,10 @@ export default function WorldPage({ onBack, onTokens }: WorldPageProps) {
     };
   }, []);
 
-  // When a wild professor appears, find out who the player could send out against them.
+  // The fighting screen owns the authenticated first summon and reserve choices.
   useEffect(() => {
     if (!encounter) return;
     meetButton.current?.focus();
-    let active = true;
-    setTeam([]);
-    setFighter(null);
-    loadInventory()
-      .then((owned) => {
-        if (active) setTeam(owned.professors);
-      })
-      .catch(() => {
-        // Without their professors, the player can still fight themselves.
-      });
-    return () => {
-      active = false;
-    };
   }, [encounter]);
 
   // Holds a direction on the on-screen pad while it is pressed.
@@ -229,6 +213,9 @@ export default function WorldPage({ onBack, onTokens }: WorldPageProps) {
     else setQuiz(true);
   }
   function closeOverlay() {
+    keys.current.clear();
+    pad.current = NO_MOVE;
+    pushInput();
     game.current?.setPaused(false);
     setGashapon(false);
     setQuiz(false);
@@ -298,11 +285,7 @@ export default function WorldPage({ onBack, onTokens }: WorldPageProps) {
             </div>
           )}
           {encounter && fighting && (
-            <BattleEncounter
-              professor={encounter}
-              fighter={fighter}
-              onLeave={leaveEncounter}
-            />
+            <BattleEncounter professor={encounter} onLeave={leaveEncounter} />
           )}
           {encounter && !fighting && (
             <div
@@ -321,37 +304,13 @@ export default function WorldPage({ onBack, onTokens }: WorldPageProps) {
                 <p className="eyebrow">★ A WILD PROFESSOR APPEARED</p>
                 <h2 id="encounter-title">{encounter.name}</h2>
                 <p className="encounter-meta">
-                  {encounter.rarity} · {encounter.department}
+                  {encounter.rarity} · {encounter.department} · Lv.{" "}
+                  {encounter.level}
                 </p>
                 <p className="encounter-note">
                   Challenge {encounter.name}. Watch for three timed coding
                   quizzes as their health drops.
                 </p>
-                <div
-                  className="encounter-team"
-                  role="group"
-                  aria-label="Who to send out"
-                >
-                  {[null, ...team].map((member) => (
-                    <button
-                      key={member?.id ?? "you"}
-                      type="button"
-                      className="encounter-choice"
-                      aria-pressed={
-                        (fighter?.id ?? null) === (member?.id ?? null)
-                      }
-                      onClick={() =>
-                        setFighter(
-                          member ? { id: member.id, name: member.name } : null,
-                        )
-                      }
-                    >
-                      {member
-                        ? `${member.name} · Lv ${member.level}`
-                        : "Yourself"}
-                    </button>
-                  ))}
-                </div>
                 <button
                   ref={meetButton}
                   className="primary-button"
@@ -413,15 +372,13 @@ export default function WorldPage({ onBack, onTokens }: WorldPageProps) {
               )}
             </div>
             <p className="world-status" role="status">
-              {roaming
-                ? `${roaming} wild ${roaming === 1 ? "professor is" : "professors are"} roaming: ${hud.spawnScreens.map(screenName).join(", ")}.`
               {hud.chasedBy
                 ? `${hud.chasedBy} is chasing you! Outrun them or head home, where you're safe.`
-                : hud.spawnScreens.length
-                ? `${hud.spawnScreens.length} Legendary ${hud.spawnScreens.length === 1 ? "professor is" : "professors are"} roaming: ${hud.spawnScreens.map(screenName).join(", ")}.`
-                : professors === null
-                  ? "Looking for wild professors…"
-                  : notice || "No wild professors right now. Keep exploring!"}
+                : roaming
+                  ? `${roaming} wild ${roaming === 1 ? "professor is" : "professors are"} roaming: ${hud.spawnScreens.map(screenName).join(", ")}.`
+                  : professors === null
+                    ? "Looking for wild professors?"
+                    : notice || "No wild professors right now. Keep exploring!"}
             </p>
           </div>
           <div className="dpad" role="group" aria-label="Move">
