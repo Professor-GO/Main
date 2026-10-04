@@ -71,13 +71,13 @@ test("meeting a Legendary professor shows their card, and moving on lets them sl
 
   const card = screen.getByRole("dialog", { name: "Chao Liu" });
   expect(card).toHaveTextContent("Legendary · Mechanical Engineering");
-  expect(card).toHaveTextContent("Battles are coming soon");
+  expect(card).toHaveTextContent("three timed coding quizzes");
   expect(screen.getByRole("img", { name: "Chao Liu" })).toHaveAttribute(
     "src",
     expect.stringContaining("chao_liu_front"),
   );
   const keepExploring = screen.getByRole("button", { name: /Keep exploring/ });
-  expect(keepExploring).toHaveFocus();
+  expect(screen.getByRole("button", { name: /Fight professor/ })).toHaveFocus();
 
   await user.click(keepExploring);
   expect(endEncounter).toHaveBeenCalledTimes(1);

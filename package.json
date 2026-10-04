@@ -50,7 +50,7 @@
     "test:tooling": "node --test scripts/tests/*.test.mjs",
     "test:auth": "node --test src/server/tests/auth.test.ts",
     "account:status": "node src/server/modules/accounts/infrastructure/accountStatus.ts",
-    "lint": "eslint src/server src/client scripts *.config.ts eslint.config.mjs",
+    "lint": "eslint src/server src/client BackEnd scripts *.config.ts eslint.config.mjs",
     "lint:check": "npm run lint",
     "lint:fix": "npm run lint -- --fix",
     "format": "prettier \"src/**/*.{ts,tsx,css,html}\" \"scripts/**/*.mjs\" \"*.{json,mjs,ts}\" --write",

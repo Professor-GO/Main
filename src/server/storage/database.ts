@@ -3,9 +3,15 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { initializeQuestions } from "../modules/questions/infrastructure/sqliteQuestions.ts";
+import { initializeBattles } from "../../../BackEnd/Persistence Layer/encounterBattles.ts";
 
 const schema = readFileSync(new URL("./schema.sql", import.meta.url), "utf8");
-export const DEFAULT_DATABASE_PATH = fileURLToPath(new URL("../../../BackEnd/Persistence Layer/data/game.sqlite", import.meta.url));
+export const DEFAULT_DATABASE_PATH = fileURLToPath(
+  new URL(
+    "../../../BackEnd/Persistence Layer/data/game.sqlite",
+    import.meta.url,
+  ),
+);
 
 /**
  * Opens the SQLite database, creating the file and its folder if needed, and makes
@@ -15,16 +21,18 @@ export const DEFAULT_DATABASE_PATH = fileURLToPath(new URL("../../../BackEnd/Per
  * @returns The open database connection. Call close() on it when finished.
  */
 export function openDatabase(filename: string): DatabaseSync {
-    if (filename !== ":memory:") mkdirSync(dirname(filename), { recursive: true });
-    const db = new DatabaseSync(filename);
-    db.exec(`
+  if (filename !== ":memory:")
+    mkdirSync(dirname(filename), { recursive: true });
+  const db = new DatabaseSync(filename);
+  db.exec(`
         PRAGMA journal_mode = WAL;
         PRAGMA busy_timeout = 5000;
     `);
-    setAsideOldInventory(db);
-    db.exec(schema);
-    initializeQuestions(db);
-    return db;
+  setAsideOldInventory(db);
+  db.exec(schema);
+  initializeQuestions(db);
+  initializeBattles(db);
+  return db;
 }
 
 /**
@@ -35,8 +43,10 @@ export function openDatabase(filename: string): DatabaseSync {
  * @param db - The open database.
  */
 function setAsideOldInventory(db: DatabaseSync): void {
-    const references = db.prepare("SELECT \"table\" FROM pragma_foreign_key_list('inventory')").all() as { table: string }[];
-    if (references.some((reference) => reference.table === "users")) {
-        db.exec("ALTER TABLE inventory RENAME TO inventory_legacy");
-    }
+  const references = db
+    .prepare("SELECT \"table\" FROM pragma_foreign_key_list('inventory')")
+    .all() as { table: string }[];
+  if (references.some((reference) => reference.table === "users")) {
+    db.exec("ALTER TABLE inventory RENAME TO inventory_legacy");
+  }
 }

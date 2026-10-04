@@ -17,6 +17,7 @@ import {
 } from "../../features/world/Game Mechanics/world";
 import type { MoveInput } from "../../features/world/Game Mechanics/world";
 import "./WorldPage.css";
+import BattleEncounter from "./BattleEncounter";
 
 type WorldPageProps = { onBack: () => void };
 
@@ -57,7 +58,7 @@ const NO_MOVE: MoveInput = {
 /**
  * The open campus: a 5 × 5 map of screens, seen from above, that the player walks around, starting at their
  * house in the middle. Legendary professors appear at random; walking up to one opens an
- * encounter card. Battles are not built yet.
+ * encounter card and a fight with timed coding questions.
  */
 export default function WorldPage({ onBack }: WorldPageProps) {
   const title = useRef<HTMLHeadingElement>(null);
@@ -76,6 +77,7 @@ export default function WorldPage({ onBack }: WorldPageProps) {
     spawnScreens: [],
   });
   const [encounter, setEncounter] = useState<LegendaryProfessor | null>(null);
+  const [fighting, setFighting] = useState(false);
 
   useEffect(() => {
     document.title = "The open campus · Professor-Go";
@@ -174,6 +176,10 @@ export default function WorldPage({ onBack }: WorldPageProps) {
   }
   function leaveEncounter() {
     game.current?.endEncounter();
+    keys.current.clear();
+    pad.current = NO_MOVE;
+    pushInput();
+    setFighting(false);
     setEncounter(null);
     canvas.current?.focus();
   }
@@ -182,7 +188,12 @@ export default function WorldPage({ onBack }: WorldPageProps) {
   const art = encounter ? professorArt(encounter.id) : undefined;
   return (
     <section id="world-view" aria-labelledby="world-title">
-      <button className="back-button" type="button" onClick={onBack}>
+      <button
+        className="back-button"
+        type="button"
+        onClick={onBack}
+        disabled={fighting}
+      >
         <span aria-hidden="true">←</span> Back to lobby
       </button>
       <p className="eyebrow">
@@ -199,11 +210,14 @@ export default function WorldPage({ onBack }: WorldPageProps) {
           <canvas
             ref={canvas}
             className="world-canvas"
-            tabIndex={0}
+            tabIndex={encounter ? -1 : 0}
             role="img"
             aria-label={`Campus map. You are on screen ${here}${isHome(hud.screen) ? ", at home" : ""}.`}
           />
-          {encounter && (
+          {encounter && fighting && (
+            <BattleEncounter professor={encounter} onLeave={leaveEncounter} />
+          )}
+          {encounter && !fighting && (
             <div
               className="encounter-card"
               role="dialog"
@@ -223,12 +237,20 @@ export default function WorldPage({ onBack }: WorldPageProps) {
                   Legendary · {encounter.department}
                 </p>
                 <p className="encounter-note">
-                  Battles are coming soon. For now, {encounter.name} gives you a
-                  knowing nod and slips away.
+                  Challenge {encounter.name}. Watch for three timed coding
+                  quizzes as their health drops.
                 </p>
                 <button
                   ref={meetButton}
                   className="primary-button"
+                  type="button"
+                  onClick={() => setFighting(true)}
+                >
+                  <span>Fight professor</span>
+                  <span aria-hidden="true">→</span>
+                </button>
+                <button
+                  className="secondary-button"
                   type="button"
                   onClick={leaveEncounter}
                 >
@@ -287,6 +309,7 @@ export default function WorldPage({ onBack }: WorldPageProps) {
                   type="button"
                   className="dpad-button"
                   aria-label={button.label}
+                  disabled={!!encounter}
                   onPointerDown={(event) => press(button.moves, event)}
                   onPointerUp={releasePad}
                   onPointerCancel={releasePad}

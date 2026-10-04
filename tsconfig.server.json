@@ -10,6 +10,6 @@
     "verbatimModuleSyntax": true,
     "types": ["node"]
   },
-  "include": ["src/server/**/*.ts"],
+  "include": ["src/server/**/*.ts", "BackEnd/**/*.ts"],
   "exclude": ["node_modules"]
 }
