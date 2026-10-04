@@ -117,9 +117,14 @@ function parseBattle(value: unknown): BattleView {
 export async function startBattle(
   encounterId: string,
   professorId: string,
+  playerProfessorId?: string,
 ): Promise<BattleView> {
   return parseBattle(
-    await request("/api/battle/start", { encounterId, professorId }),
+    await request("/api/battle/start", {
+      encounterId,
+      professorId,
+      ...(playerProfessorId ? { playerProfessorId } : {}),
+    }),
   );
 }
 /** Loads authoritative battle state after a conflict or a lost reply. */

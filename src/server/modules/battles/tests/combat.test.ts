@@ -32,7 +32,7 @@ test("strikes use floor attack/defense and counterattacks clamp player health at
   assert.throws(() => strike(state));
 });
 
-test("wrong answers heal 50–80% of current lost HP rounded down; correct answers do not heal", () => {
+test("wrong answers heal 10–20% of max HP rounded down; correct answers do not heal", () => {
   const state = {
     ...createCombat({ health: 100, attack: 0, defense: 80 }, () => 0),
     health: 67,
@@ -41,9 +41,9 @@ test("wrong answers heal 50–80% of current lost HP rounded down; correct answe
     eventsTriggered: 1,
   };
   assert.equal(resolveQuiz(state, true).state.health, 67);
-  assert.equal(resolveQuiz(state, false, () => 0).healed, 16);
-  assert.equal(resolveQuiz(state, false, () => 0.999999).healed, 26);
-  assert.equal(resolveQuiz(state, false, () => 0.999999).state.health, 93);
+  assert.equal(resolveQuiz(state, false, () => 0).healed, 10);
+  assert.equal(resolveQuiz(state, false, () => 0.999999).healed, 20);
+  assert.equal(resolveQuiz(state, false, () => 0.999999).state.health, 87);
   assert.equal(state.health, 67);
 });
 

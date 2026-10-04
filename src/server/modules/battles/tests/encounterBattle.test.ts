@@ -156,23 +156,23 @@ test("a correct answer heals nothing and finishes the paused strike", () => {
   assert.equal(state.playerHealth, 96);
 });
 
-test("a wrong answer heals 50% to 80% of lost health before the strike finishes", () => {
-  // Paused at 67 of 100 health, so 33 is lost and 27 damage is still waiting.
+test("a wrong answer heals 10% to 20% of max health before the strike finishes", () => {
+  // Paused at 67 of 100 health, so 27 damage is still waiting.
   const paused = strike(strike(fight(100, 40, 20)));
 
   const lowest = resolveQuiz(paused, false, LOWEST_ROLL);
-  assert.equal(lowest.healingPercent, 50);
-  assert.equal(lowest.healed, 16);
-  assert.equal(lowest.state.health, 67 + 16 - 27);
-  assert.equal(lowest.playerDamage, 78);
-  assert.equal(lowest.state.playerHealth, 18); // 98 - floor(98 * 0.8) - 2 counterattack.
+  assert.equal(lowest.healingPercent, 10);
+  assert.equal(lowest.healed, 10);
+  assert.equal(lowest.state.health, 67 + 10 - 27);
+  assert.equal(lowest.playerDamage, 4);
+  assert.equal(lowest.state.playerHealth, 92);
 
   const highest = resolveQuiz(paused, false, HIGHEST_ROLL);
-  assert.equal(highest.healingPercent, 80);
-  assert.equal(highest.healed, 26);
-  assert.equal(highest.state.health, 67 + 26 - 27);
-  assert.equal(highest.playerDamage, 78);
-  assert.equal(highest.state.playerHealth, 18);
+  assert.equal(highest.healingPercent, 20);
+  assert.equal(highest.healed, 20);
+  assert.equal(highest.state.health, 67 + 20 - 27);
+  assert.equal(highest.playerDamage, 11);
+  assert.equal(highest.state.playerHealth, 85);
 });
 
 test("the wrong-answer penalty uses current HP, rounds damage down, and does not mutate the input", () => {
@@ -181,7 +181,7 @@ test("the wrong-answer penalty uses current HP, rounds damage down, and does not
     const before = { ...paused, playerHealth: health };
     const snapshot = structuredClone(before);
     const result = resolveQuiz(before, false, LOWEST_ROLL);
-    assert.equal(result.playerDamage, Math.floor((health * 80) / 100));
+    assert.equal(result.playerDamage, Math.min(Math.floor((health * 5) / 100), 15));
     assert.equal(result.state.playerHealth, health - result.playerDamage);
     assert.deepEqual(before, snapshot);
   }
@@ -190,24 +190,24 @@ test("the wrong-answer penalty uses current HP, rounds damage down, and does not
 test("the penalty can lead to defeat when the professor counterattacks", () => {
   const paused = { ...strike(strike(fight(100, 40, 20))), playerHealth: 5 };
   const result = resolveQuiz(paused, false, LOWEST_ROLL);
-  assert.equal(result.playerDamage, 4);
-  assert.equal(result.healed, 16);
-  assert.equal(result.state.playerHealth, 0);
-  assert.equal(result.state.status, "lost");
+  assert.equal(result.playerDamage, 0);
+  assert.equal(result.healed, 10);
+  assert.equal(result.state.playerHealth, 3);
+  assert.equal(result.state.status, "fighting");
 });
 
 test("wrong answers still cost health when deferred damage reaches another quiz or wins the fight", () => {
   const paused = strike(fight(100, 40, 1));
   const first = resolveQuiz(paused, false, LOWEST_ROLL);
-  assert.equal(first.playerDamage, 80);
-  assert.equal(first.state.playerHealth, 20);
+  assert.equal(first.playerDamage, 5);
+  assert.equal(first.state.playerHealth, 95);
   assert.equal(first.state.status, "question");
   const second = resolveQuiz(first.state, false, LOWEST_ROLL);
-  assert.equal(second.playerDamage, 16);
-  assert.equal(second.state.playerHealth, 4);
+  assert.equal(second.playerDamage, 4);
+  assert.equal(second.state.playerHealth, 91);
   const third = resolveQuiz(second.state, false, LOWEST_ROLL);
-  assert.equal(third.playerDamage, 3);
-  assert.equal(third.state.playerHealth, 1);
+  assert.equal(third.playerDamage, 4);
+  assert.equal(third.state.playerHealth, 87);
   assert.equal(third.state.status, "won");
 });
 
