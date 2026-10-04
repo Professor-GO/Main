@@ -31,8 +31,8 @@ test("rarity rises with average rating", () => {
 
 test("draws follow the cumulative pull chances", () => {
     const pool = buildPool([
-        { id: "a", name: "A", image: "/a.png", avgRating: 1, department: "Physics", stats: { health: 1, attack: 1, defense: 1, speed: 1 }, copiesToLevelUp: 1 },
-        { id: "b", name: "B", image: "/b.png", avgRating: 4, department: "English", stats: { health: 1, attack: 1, defense: 1, speed: 1 }, copiesToLevelUp: 1 },
+        { id: "a", name: "A", image: "/a.png", avgRating: 1, department: "Computer Science", stats: { health: 1, attack: 1, defense: 1, speed: 1 }, copiesToLevelUp: 1 },
+        { id: "b", name: "B", image: "/b.png", avgRating: 4, department: "Mathematics", stats: { health: 1, attack: 1, defense: 1, speed: 1 }, copiesToLevelUp: 1 },
     ]);
     // Weights 1 and 1/4 give chances of 80% and 20%.
     assert.deepEqual(pool.map((professor) => professor.pullChance), [0.8, 0.2]);
@@ -43,7 +43,7 @@ test("draws follow the cumulative pull chances", () => {
 });
 
 test("invalid roster entries are rejected", () => {
-    const valid: ProfessorEntry = { id: "a", name: "A", image: "/a.png", avgRating: 3, department: "Physics", stats: { health: 1, attack: 1, defense: 1, speed: 1 }, copiesToLevelUp: 3 };
+    const valid: ProfessorEntry = { id: "a", name: "A", image: "/a.png", avgRating: 3, department: "Computer Science", stats: { health: 1, attack: 1, defense: 1, speed: 1 }, copiesToLevelUp: 3 };
     assert.throws(() => buildPool([]), /empty/);
     assert.throws(() => buildPool([valid, valid]), /duplicate id/);
     assert.throws(() => buildPool([{ ...valid, avgRating: 0 }]), /avgRating/);

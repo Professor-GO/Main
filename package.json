@@ -31,12 +31,15 @@
 		"chai": "4.3.4",
 		"chai-as-promised": "7.1.1",
 		"chai-http": "4.4.0",
+		"eslint": "9.39.5",
+		"globals": "17.13.0",
 		"mocha": "11.7.1",
 		"nyc": "17.1.0",
 		"prettier": "3.6.2",
 		"supertest": "7.1.4",
 		"ts-node": "10.9.2",
-		"typescript": "5.9.2"
+		"typescript": "5.9.2",
+		"typescript-eslint": "8.71.0"
 	},
 	"scripts": {
 		"start": "node BackEnd/server.ts",
@@ -49,9 +52,9 @@
 		"test": "node --test \"BackEndTest/**/*.test.ts\"",
 		"test:auth": "node --test BackEndTest/auth.test.ts",
 		"account:status": "node \"BackEnd/Persistence Layer/account-status.ts\"",
-		"lint:check": "eslint src test --ext .ts",
-		"lint:fix": "eslint src test --ext .ts --fix",
-		"prettier:check": "prettier src/**/*.ts test/**/*.ts --check",
-		"prettier:fix": "prettier src/**/*.ts test/**/*.ts --write"
+		"lint:check": "eslint BackEnd BackEndTest",
+		"lint:fix": "eslint BackEnd BackEndTest --fix",
+		"prettier:check": "prettier \"BackEnd/**/*.ts\" \"BackEndTest/**/*.ts\" \"FrontEnd/**/*.{js,css,html}\" \"*.{json,mjs}\" --check",
+		"prettier:fix": "prettier \"BackEnd/**/*.ts\" \"BackEndTest/**/*.ts\" \"FrontEnd/**/*.{js,css,html}\" \"*.{json,mjs}\" --write"
 	}
 }
