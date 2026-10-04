@@ -3,11 +3,11 @@
 
 import type { DatabaseSync } from "node:sqlite";
 import type express from "express";
-import type { Auth } from "../Persistence Layer/auth.ts";
+import type { Auth } from "../modules/accounts/infrastructure/betterAuth.ts";
 import { allowMethods, createApp, createRouter, errorHandler, notFound } from "./http.ts";
-import { authRoutes } from "./routes/auth.ts";
-import { gachaRoutes } from "./routes/gacha.ts";
-import { questionRoutes } from "./routes/question.ts";
+import { authRoutes } from "../modules/accounts/http/routes.ts";
+import { gachaRoutes } from "../modules/recruitment/http/routes.ts";
+import { questionRoutes } from "../modules/questions/http/routes.ts";
 
 /** What the API routes need from server.ts. */
 export type AppContext = {

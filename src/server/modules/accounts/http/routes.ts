@@ -4,10 +4,10 @@
 // player-friendly messages.
 
 import { APIError } from "better-auth/api";
-import { USERNAME_PATTERN, hiddenEmail, publicUser } from "../../Persistence Layer/auth.ts";
-import type { AppContext } from "../backend.ts";
-import { allowMethods, createRouter, httpError, jsonBody } from "../http.ts";
-import { authHeaders, checkOrigin, currentSession, rateLimiter, sendAuthCookies } from "../session.ts";
+import { USERNAME_PATTERN, hiddenEmail, publicUser } from "../infrastructure/betterAuth.ts";
+import type { AppContext } from "../../../http/apiApp.ts";
+import { allowMethods, createRouter, httpError, jsonBody } from "../../../http/http.ts";
+import { authHeaders, checkOrigin, currentSession, rateLimiter, sendAuthCookies } from "./session.ts";
 
 /**
  * Checks the username and password sent to sign up or log in.

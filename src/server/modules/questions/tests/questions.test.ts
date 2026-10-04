@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { openDatabase } from "../BackEnd/Persistence Layer/database.ts";
-import { createAuth } from "../BackEnd/Persistence Layer/auth.ts";
-import { fallbackCodingQuestion } from "../BackEnd/Gemini.ts";
-import { answerQuestion, saveQuestion } from "../BackEnd/Persistence Layer/questions.ts";
+import { openDatabase } from "../../../storage/database.ts";
+import { createAuth } from "../../accounts/infrastructure/betterAuth.ts";
+import { fallbackCodingQuestion } from "../infrastructure/gemini.ts";
+import { answerQuestion, saveQuestion } from "../infrastructure/sqliteQuestions.ts";
 
 test("question rewards persist atomically, reject expired attempts, and respect account status", async (t) => {
     const db = openDatabase(":memory:");

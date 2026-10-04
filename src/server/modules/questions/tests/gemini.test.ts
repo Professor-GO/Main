@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { QUESTION_CHOICES, createCodingQuestion, fallbackCodingQuestion, modelsToTry, parseGeminiQuestion, shuffleChoices } from "../BackEnd/Gemini.ts";
+import { QUESTION_CHOICES, createCodingQuestion, fallbackCodingQuestion, modelsToTry, parseGeminiQuestion, shuffleChoices } from "../infrastructure/gemini.ts";
 
 const validQuestion = {
     question: "What does [1, 2, 3].length return?",

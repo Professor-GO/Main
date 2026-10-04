@@ -42,19 +42,19 @@
 		"typescript-eslint": "8.71.0"
 	},
 	"scripts": {
-		"start": "node BackEnd/server.ts",
-		"dev": "node BackEnd/server.ts",
+		"start": "node src/server/bootstrap/server.ts",
+		"dev": "node src/server/bootstrap/server.ts",
 		"postinstall": "git config core.hooksPath .githooks",
 		"cover": "nyc --reporter text --reporter html yarn run test",
 		"build": "npm run typecheck",
 		"build:lint": "npm run typecheck && yarn prettier:check && yarn lint:check",
 		"typecheck": "tsc --noEmit",
-		"test": "node --test \"BackEndTest/**/*.test.ts\"",
-		"test:auth": "node --test BackEndTest/auth.test.ts",
-		"account:status": "node \"BackEnd/Persistence Layer/account-status.ts\"",
-		"lint:check": "eslint BackEnd BackEndTest",
-		"lint:fix": "eslint BackEnd BackEndTest --fix",
-		"prettier:check": "prettier \"BackEnd/**/*.ts\" \"BackEndTest/**/*.ts\" \"FrontEnd/**/*.{js,css,html}\" \"*.{json,mjs}\" --check",
-		"prettier:fix": "prettier \"BackEnd/**/*.ts\" \"BackEndTest/**/*.ts\" \"FrontEnd/**/*.{js,css,html}\" \"*.{json,mjs}\" --write"
+		"test": "node --test \"src/server/**/*.test.ts\"",
+		"test:auth": "node --test src/server/tests/auth.test.ts",
+		"account:status": "node src/server/modules/accounts/infrastructure/accountStatus.ts",
+		"lint:check": "eslint src/server",
+		"lint:fix": "eslint src/server --fix",
+		"prettier:check": "prettier \"src/server/**/*.ts\" \"FrontEnd/**/*.{js,css,html}\" \"*.{json,mjs}\" --check",
+		"prettier:fix": "prettier \"src/server/**/*.ts\" \"FrontEnd/**/*.{js,css,html}\" \"*.{json,mjs}\" --write"
 	}
 }

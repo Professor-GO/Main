@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
-import type { CodingQuestion } from "../Gemini.ts";
+import type { CodingQuestion } from "./gemini.ts";
 
 export const QUESTION_REWARD = 1;
 export const QUESTION_LIFETIME_MS = 30 * 60 * 1000;

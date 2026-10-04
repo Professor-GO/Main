@@ -1,8 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
-import { inventoryRows, savePull, spendCopies } from "../Persistence Layer/inventory.ts";
-import type { InventoryRow } from "../Persistence Layer/inventory.ts";
-import { DEPARTMENTS, PROFESSOR_POOL } from "./Professor Pool/professors.ts";
-import type { ProfessorEntry } from "./Professor Pool/professors.ts";
+import { inventoryRows, savePull, spendCopies } from "../infrastructure/sqliteInventory.ts";
+import type { InventoryRow } from "../infrastructure/sqliteInventory.ts";
+import { DEPARTMENTS, PROFESSOR_POOL } from "../domain/professors.ts";
+import type { ProfessorEntry } from "../domain/professors.ts";
 
 // Tokens spent on each recruitment pull.
 export const PULL_COST = 10;

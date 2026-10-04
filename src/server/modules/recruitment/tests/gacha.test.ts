@@ -4,11 +4,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { openDatabase } from "../BackEnd/Persistence Layer/database.ts";
-import { createAuth, hiddenEmail } from "../BackEnd/Persistence Layer/auth.ts";
-import { GACHA_POOL, PULL_COST, buildPool, inventoryFor, levelUpProfessor, pickProfessor, pullProfessor, rarityFor } from "../BackEnd/Professor Gacha System/gacha.ts";
-import { PROFESSOR_POOL } from "../BackEnd/Professor Gacha System/Professor Pool/professors.ts";
-import type { ProfessorEntry } from "../BackEnd/Professor Gacha System/Professor Pool/professors.ts";
+import { openDatabase } from "../../../storage/database.ts";
+import { createAuth, hiddenEmail } from "../../accounts/infrastructure/betterAuth.ts";
+import { GACHA_POOL, PULL_COST, buildPool, inventoryFor, levelUpProfessor, pickProfessor, pullProfessor, rarityFor } from "../application/recruitment.ts";
+import { PROFESSOR_POOL } from "../domain/professors.ts";
+import type { ProfessorEntry } from "../domain/professors.ts";
 
 test("pull chances are the inverse of each professor's average rating", () => {
     assert.equal(GACHA_POOL.length, PROFESSOR_POOL.length);

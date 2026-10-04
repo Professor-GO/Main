@@ -6,7 +6,7 @@ import type { OutgoingHttpHeaders } from "node:http";
 import type express from "express";
 import type { RequestHandler } from "express";
 import { createApp, errorHandler, httpError } from "./http.ts";
-import { rateLimiter } from "./session.ts";
+import { rateLimiter } from "../modules/accounts/http/session.ts";
 
 /** A website file kept in memory, served at a fixed path. */
 export type Asset = { contentType: string; body: Buffer };

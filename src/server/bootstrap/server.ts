@@ -8,31 +8,16 @@ import { readFile } from "node:fs/promises";
 import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
-import { DEFAULT_DATABASE_PATH, openDatabase } from "./Persistence Layer/database.ts";
-import { createAuth, DEVELOPMENT_SECRET } from "./Persistence Layer/auth.ts";
-import { createBackendApp } from "./Express/backend.ts";
-import { createFrontendApp } from "./Express/frontend.ts";
-import type { Asset } from "./Express/frontend.ts";
+import { openDatabase } from "../storage/database.ts";
+import { createAuth } from "../modules/accounts/infrastructure/betterAuth.ts";
+import { createBackendApp } from "../http/apiApp.ts";
+import { createFrontendApp } from "../http/websiteApp.ts";
+import type { Asset } from "../http/websiteApp.ts";
+import { readConfig } from "./config.ts";
 
-const projectRoot = fileURLToPath(new URL("../", import.meta.url));
+const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const servers: Server[] = [];
 let database: DatabaseSync | undefined;
-
-/**
- * Reads a port number from an environment variable.
- * @param name - The environment variable to read, such as "FRONTEND_PORT".
- * @param fallback - The port to use when the variable is not set.
- * @returns The port number.
- * @throws Error if the value is not a whole number from 1 to 65535.
- */
-function portSetting(name: string, fallback: number): number {
-    const value = process.env[name] ?? String(fallback);
-    const port = Number(value);
-    if (!/^\d+$/.test(value) || port < 1 || port > 65535) {
-        throw new Error(`${name} must be an integer between 1 and 65535.`);
-    }
-    return port;
-}
 
 /**
  * Reads the website files into memory. Only these paths are ever served.
@@ -60,25 +45,11 @@ async function main(): Promise<void> {
     try { loadEnvFile(resolve(projectRoot, ".env")); }
     catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
 
-    const environment = process.env.APP_ENV ?? "development";
-    if (!["development", "test", "production"].includes(environment)) {
-        throw new Error("APP_ENV must be development, test, or production.");
-    }
-    // Production needs a real BETTER_AUTH_SECRET and marks session cookies Secure (HTTPS only).
-    const production = environment === "production";
-    const frontendHost = process.env.FRONTEND_HOST ?? "127.0.0.1";
-    const frontendPort = portSetting("FRONTEND_PORT", 3000);
-    const backendHost = process.env.BACKEND_HOST ?? "127.0.0.1";
-    const backendPort = portSetting("BACKEND_PORT", 3001);
-    // A server listening on every address is reached through the local one.
-    const backendConnectHost = backendHost === "0.0.0.0" ? "127.0.0.1" : backendHost === "::" ? "::1" : backendHost;
-    // Better Auth signs session cookies with this secret. Production must set its own.
-    const secret = process.env.BETTER_AUTH_SECRET?.trim() || (production ? "" : DEVELOPMENT_SECRET);
-    if (!secret) throw new Error("Set BETTER_AUTH_SECRET in .env to a long random value before running in production.");
+    const { environment, production, frontendHost, frontendPort, backendHost, backendPort,
+        backendConnectHost, secret, baseURL, databasePath } = readConfig(projectRoot, process.env);
     const displayHost = frontendHost.includes(":") ? `[${frontendHost}]` : frontendHost;
-    const baseURL = process.env.BETTER_AUTH_URL?.trim() || `http://${displayHost}:${frontendPort}`;
 
-    const db = openDatabase(resolve(projectRoot, process.env.DATABASE_PATH ?? DEFAULT_DATABASE_PATH));
+    const db = openDatabase(databasePath);
     database = db;
     const auth = await createAuth(db, { baseURL, secret, production });
 

@@ -9,11 +9,11 @@ import { tmpdir } from "node:os";
 import { resolve, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:net";
-import { openDatabase } from "../BackEnd/Persistence Layer/database.ts";
-import { STARTING_TOKENS, hiddenEmail } from "../BackEnd/Persistence Layer/auth.ts";
-import type { PublicUser } from "../BackEnd/Persistence Layer/auth.ts";
-import { GACHA_POOL, PULL_COST } from "../BackEnd/Professor Gacha System/gacha.ts";
-import type { InventoryItem } from "../BackEnd/Professor Gacha System/gacha.ts";
+import { openDatabase } from "../storage/database.ts";
+import { STARTING_TOKENS, hiddenEmail } from "../modules/accounts/infrastructure/betterAuth.ts";
+import type { PublicUser } from "../modules/accounts/infrastructure/betterAuth.ts";
+import { GACHA_POOL, PULL_COST } from "../modules/recruitment/application/recruitment.ts";
+import type { InventoryItem } from "../modules/recruitment/application/recruitment.ts";
 
 type AccountResponse = { user: PublicUser };
 type ApiOptions = {
@@ -23,7 +23,7 @@ type ApiOptions = {
     method?: string;
 };
 
-const root = fileURLToPath(new URL("../", import.meta.url));
+const root = fileURLToPath(new URL("../../../", import.meta.url));
 // Signs session cookies in the test servers. Production refuses to start without one.
 const TEST_SECRET = "test-secret-for-account-tests-only-0123456789";
 
@@ -59,7 +59,7 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
      * @returns A promise that resolves once the servers are listening.
      */
     async function start(environment = "test") {
-        const serverProcess = spawn(process.execPath, ["BackEnd/server.ts"], {
+        const serverProcess = spawn(process.execPath, ["src/server/bootstrap/server.ts"], {
             cwd: root,
             env: { ...process.env, APP_ENV: environment, FRONTEND_HOST: "127.0.0.1", FRONTEND_PORT: String(frontendPort), BACKEND_HOST: "127.0.0.1", BACKEND_PORT: String(backendPort), DATABASE_PATH: databasePath, GEMINI_API_KEY: "", BETTER_AUTH_SECRET: TEST_SECRET, BETTER_AUTH_URL: "" },
             stdio: ["ignore", "pipe", "pipe"], windowsHide: true,
@@ -271,6 +271,19 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         assert.deepEqual([levelled.data.item.level, levelled.data.item.copies], [item.level + 1, 1]);
     });
 
+    await t.test("account, session, owned professor and token balance survive moved-server restart", async () => {
+        const before = await api<AccountResponse>("auth/me", { cookie: userCookie });
+        const inventoryBefore = await api<{ inventory: InventoryItem[] }>("inventory", { cookie: userCookie });
+        assert.ok(inventoryBefore.data.inventory.length > 0);
+        await stop();
+        await start();
+        const after = await api<AccountResponse>("auth/me", { cookie: userCookie });
+        const inventoryAfter = await api<{ inventory: InventoryItem[] }>("inventory", { cookie: userCookie });
+        assert.equal(after.response.status, 200);
+        assert.deepEqual(after.data.user, before.data.user);
+        assert.deepEqual(inventoryAfter.data.inventory, inventoryBefore.data.inventory);
+    });
+
     await t.test("inactive accounts cannot sign in or use an existing session", async () => {
         db.prepare('UPDATE "user" SET isActive = 0 WHERE id = ?').run(userId);
         assert.equal((await api("auth/me", { cookie: userCookie })).response.status, 401);
@@ -355,7 +368,7 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
     await t.test("the account-status command revokes sessions and supports reactivation", async () => {
         const login = await api("auth/login", { body: { username: "TestPlayer", password } });
         for (const status of ["inactive", "active"]) {
-            const result = await promisify(execFile)(process.execPath, ["BackEnd/Persistence Layer/account-status.ts", "testplayer", status], {
+            const result = await promisify(execFile)(process.execPath, ["src/server/modules/accounts/infrastructure/accountStatus.ts", "testplayer", status], {
                 cwd: root, env: { ...process.env, DATABASE_PATH: databasePath }, windowsHide: true,
             });
             assert.match(result.stdout, new RegExp(`is now ${status}`));

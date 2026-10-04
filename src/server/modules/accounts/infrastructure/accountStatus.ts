@@ -1,9 +1,9 @@
 import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
-import { DEFAULT_DATABASE_PATH, openDatabase } from "./database.ts";
+import { DEFAULT_DATABASE_PATH, openDatabase } from "../../../storage/database.ts";
 
-const root = fileURLToPath(new URL("../../", import.meta.url));
+const root = fileURLToPath(new URL("../../../../../", import.meta.url));
 try { loadEnvFile(resolve(root, ".env")); }
 catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
 

@@ -1,10 +1,10 @@
 // Coding question route for the Get tokens page.
 
-import { createCodingQuestion } from "../../Gemini.ts";
-import { answerQuestion, saveQuestion } from "../../Persistence Layer/questions.ts";
-import type { AppContext } from "../backend.ts";
-import { allowMethods, createRouter, httpError, jsonBody } from "../http.ts";
-import { checkOrigin, requireUser } from "../session.ts";
+import { createCodingQuestion } from "../infrastructure/gemini.ts";
+import { answerQuestion, saveQuestion } from "../infrastructure/sqliteQuestions.ts";
+import type { AppContext } from "../../../http/apiApp.ts";
+import { allowMethods, createRouter, httpError, jsonBody } from "../../../http/http.ts";
+import { checkOrigin, requireUser } from "../../accounts/http/session.ts";
 
 /**
  * Creates the coding question route, mounted under /api.

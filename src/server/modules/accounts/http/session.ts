@@ -4,8 +4,8 @@
 import type { IncomingMessage } from "node:http";
 import type { RequestHandler, Response } from "express";
 import { fromNodeHeaders } from "better-auth/node";
-import type { Auth, AuthUser } from "../Persistence Layer/auth.ts";
-import { httpError } from "./http.ts";
+import type { Auth, AuthUser } from "../infrastructure/betterAuth.ts";
+import { httpError } from "../../../http/http.ts";
 
 /**
  * Converts a request's headers into the Headers object Better Auth's functions take,

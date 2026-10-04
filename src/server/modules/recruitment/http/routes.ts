@@ -1,10 +1,10 @@
 // Gacha and inventory routes: the professor pool, recruiting, and levelling up.
 
-import { publicUser } from "../../Persistence Layer/auth.ts";
-import { GACHA_POOL, PULL_COST, inventoryFor, levelUpProfessor, pullProfessor } from "../../Professor Gacha System/gacha.ts";
-import type { AppContext } from "../backend.ts";
-import { allowMethods, createRouter, httpError, jsonBody } from "../http.ts";
-import { checkOrigin, requireUser } from "../session.ts";
+import { publicUser } from "../../accounts/infrastructure/betterAuth.ts";
+import { GACHA_POOL, PULL_COST, inventoryFor, levelUpProfessor, pullProfessor } from "../application/recruitment.ts";
+import type { AppContext } from "../../../http/apiApp.ts";
+import { allowMethods, createRouter, httpError, jsonBody } from "../../../http/http.ts";
+import { checkOrigin, requireUser } from "../../accounts/http/session.ts";
 
 /**
  * Creates the gacha and inventory routes, mounted under /api.

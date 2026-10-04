@@ -2,10 +2,10 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { initializeQuestions } from "./questions.ts";
+import { initializeQuestions } from "../modules/questions/infrastructure/sqliteQuestions.ts";
 
 const schema = readFileSync(new URL("./schema.sql", import.meta.url), "utf8");
-export const DEFAULT_DATABASE_PATH = fileURLToPath(new URL("./data/game.sqlite", import.meta.url));
+export const DEFAULT_DATABASE_PATH = fileURLToPath(new URL("../../../BackEnd/Persistence Layer/data/game.sqlite", import.meta.url));
 
 /**
  * Opens the SQLite database, creating the file and its folder if needed, and makes
