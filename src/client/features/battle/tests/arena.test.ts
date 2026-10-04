@@ -215,3 +215,17 @@ test("the enemy AI can choose which way it faces", () => {
   const { state } = stepArena(createArena(), NO_INPUT, { ...STAND, facing: 1 }, FRAME);
   assert.equal(state.enemy.facing, 1);
 });
+
+test("a level bonus makes the player run faster", () => {
+  const boosted = stepArena(
+    createArena(),
+    { ...NO_INPUT, right: true },
+    STAND,
+    0.1,
+    enemySpeed(),
+    ARENA.playerSpeed * 2,
+  );
+  assert.ok(
+    Math.abs(boosted.state.player.x - (ARENA.playerStart + ARENA.playerSpeed * 2 * 0.1)) < 1e-6,
+  );
+});

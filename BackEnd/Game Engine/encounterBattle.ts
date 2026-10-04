@@ -5,6 +5,14 @@
  */
 export const STUDENT_STATS = { health: 100, attack: 600, defense: 20 };
 
+/** Wild professors appear at these levels. The campus map rolls them (SPAWNING in world.ts). */
+export const WILD_LEVELS = { min: 10, max: 100 };
+/**
+ * For each level a fighter is above their opponent, their attack, defense, and speed grow by
+ * this many percent: a level 30 professor against a level 10 fighter has 200% of their stats.
+ */
+export const LEVEL_BONUS_PERCENT = 5;
+
 export type SummonFighter = {
   id: string;
   name: string;
@@ -23,6 +31,8 @@ export type CombatState = {
   fighters?: SummonFighter[];
   attack: number;
   defense: number;
+  /** The wild professor's level. Optional for battles saved before levels were introduced. */
+  level?: number;
   checkpoints: number[];
   eventsTriggered: number;
   pendingEvent: number | null;
@@ -30,11 +40,24 @@ export type CombatState = {
   status: "summoning" | "fighting" | "question" | "won" | "lost" | "fled";
 };
 
-/** Chooses one checkpoint per requested range, once at the start of a fight. */
+/**
+ * Chooses one checkpoint per requested range, once at the start of a fight. Without a level
+ * (as in tests of the base damage rules) neither fighter gets a level bonus.
+ */
 export function createCombat(
   stats: { health: number; attack: number; defense: number },
   random = Math.random,
+  level?: number,
 ): CombatState {
+  if (
+    level !== undefined &&
+    (!Number.isInteger(level) ||
+      level < WILD_LEVELS.min ||
+      level > WILD_LEVELS.max)
+  )
+    throw new Error(
+      `A wild professor's level must be a whole number from ${WILD_LEVELS.min} to ${WILD_LEVELS.max}.`,
+    );
   // Whole HP checkpoints stay inside each range even when max HP is not divisible by the fractions.
   const checkpoint = (lower: number, upper: number) => {
     const min = Math.ceil(stats.health * lower),
@@ -47,6 +70,7 @@ export function createCombat(
     playerHealth: STUDENT_STATS.health,
     attack: stats.attack,
     defense: stats.defense,
+    ...(level === undefined ? {} : { level }),
     checkpoints: [
       checkpoint(2 / 3, 3 / 4),
       checkpoint(1 / 3, 3 / 5),
@@ -109,19 +133,74 @@ function applyDamage(state: CombatState, damage: number): void {
   state.status = state.health === 0 ? "won" : "fighting";
 }
 
-/** A landed hit deals floor(attack / defense), with a minimum of one damage. */
-function hitDamage(attack: number, defense: number): number {
-  return Math.max(1, Math.floor(attack / defense));
+/**
+ * Works out how much a fighter's level lifts their attack, defense, and speed.
+ * @param level - The fighter's level.
+ * @param opponentLevel - Their opponent's level.
+ * @returns A whole percentage: 100 at the same level or below, plus LEVEL_BONUS_PERCENT for each
+ * level above the opponent.
+ */
+export function levelBonus(level: number, opponentLevel: number): number {
+  return 100 + LEVEL_BONUS_PERCENT * Math.max(0, level - opponentLevel);
 }
 
-/** The player's punch landed, using the summoned professor's stats. */
+/**
+ * Finds both fighters' levels: the wild professor's (null for a battle without levels), and the
+ * summoned professor's. The student, with no professor summoned, counts as level 1.
+ */
+export function levelsOf(state: CombatState): {
+  player: number;
+  enemy: number | null;
+} {
+  const fighter = state.fighters?.find(
+    (entry) => entry.id === state.activeProfessorId,
+  );
+  return { player: fighter?.level ?? 1, enemy: state.level ?? null };
+}
+
+/**
+ * Both fighters' level bonuses as whole percentages (see levelBonus). Only the higher level gets
+ * one, and a battle without levels gives neither side a bonus.
+ */
+export function levelBonuses(state: CombatState): { player: number; enemy: number } {
+  const levels = levelsOf(state);
+  if (levels.enemy === null) return { player: 100, enemy: 100 };
+  return {
+    player: levelBonus(levels.player, levels.enemy),
+    enemy: levelBonus(levels.enemy, levels.player),
+  };
+}
+
+/**
+ * A landed hit deals floor(attack / defense), with a minimum of one damage. Each side's stat is
+ * first scaled by that side's level bonus, worked out in whole numbers so the floor is exact.
+ */
+function hitDamage(
+  attack: number,
+  attackBonus: number,
+  defense: number,
+  defenseBonus: number,
+): number {
+  return Math.max(
+    1,
+    Math.floor((attack * attackBonus) / (defense * defenseBonus)),
+  );
+}
+
+/** The player's punch landed, using the summoned professor's stats and both level bonuses. */
 export function strike(state: CombatState): CombatState {
   if (state.status !== "fighting")
     throw new Error("Finish the current question before attacking.");
   const next = structuredClone(state);
+  const bonus = levelBonuses(state);
   applyDamage(
     next,
-    hitDamage(state.playerStats?.attack ?? STUDENT_STATS.attack, state.defense),
+    hitDamage(
+      state.playerStats?.attack ?? STUDENT_STATS.attack,
+      bonus.player,
+      state.defense,
+      bonus.enemy,
+    ),
   );
   return next;
 }
@@ -131,12 +210,15 @@ export function enemyStrike(state: CombatState): CombatState {
   if (state.status !== "fighting")
     throw new Error("The professor can only strike during the fight.");
   const next = structuredClone(state);
+  const bonus = levelBonuses(state);
   next.playerHealth = Math.max(
     0,
     next.playerHealth -
       hitDamage(
         next.attack,
+        bonus.enemy,
         state.playerStats?.defense ?? STUDENT_STATS.defense,
+        bonus.player,
       ),
   );
   if (next.playerHealth === 0) {

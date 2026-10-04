@@ -180,3 +180,25 @@ test("the professor closes in and punches land, reported for the server to settl
   await waitFor(() => expect(onLand).toHaveBeenCalled(), { timeout: 5000 });
   expect(["player", "enemy"]).toContain(onLand.mock.calls[0][0]);
 });
+
+test("both fighters' levels show above their names, with the higher level's stat bonus", () => {
+  fullMotion();
+  render(
+    <BattleStage
+      player={fighterArt("tor-aamodt")}
+      enemy={fighterArt("frank-wood")}
+      battle={{
+        ...battle,
+        level: 30,
+        playerLevel: 10,
+        levelBonus: { player: 100, enemy: 200 },
+      }}
+      onAnimating={vi.fn()}
+      input={controls()}
+      running={false}
+      onLand={vi.fn()}
+    />,
+  );
+  expect(screen.getByText(/YOUR FIGHTER · LV\. 10$/)).toBeVisible();
+  expect(screen.getByText(/WILD PROFESSOR · LV\. 30 · 200% STATS/)).toBeVisible();
+});

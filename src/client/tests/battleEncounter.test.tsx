@@ -45,6 +45,7 @@ const professor = {
   id: "frank-wood",
   name: "Frank Wood",
   department: "Computer Science",
+  level: 37,
 };
 const base: BattleView = {
   id: "battle-1",
@@ -153,6 +154,11 @@ test("a fight pauses for a generated question, then a wrong answer heals the pro
   ).not.toBeInTheDocument();
   expect(punch).toBeEnabled();
   expect(fetcher.mock.calls[0][0]).toBe("/api/battle/start");
+  // The level the professor rolled on the map goes to the server with the encounter.
+  expect(JSON.parse(fetcher.mock.calls[0][1].body)).toMatchObject({
+    professorId: "frank-wood",
+    level: 37,
+  });
   expect(fetcher).toHaveBeenCalledTimes(4);
   expect(JSON.parse(fetcher.mock.calls[3][1].body)).toMatchObject({
     kind: "answer",

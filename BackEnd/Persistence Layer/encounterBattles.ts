@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { levelBonuses, levelsOf } from "../Game Engine/encounterBattle.ts";
 import type { CombatState } from "../Game Engine/encounterBattle.ts";
 import { httpError } from "../../src/server/http/http.ts";
 import type { CodingQuestion } from "../../src/server/modules/questions/infrastructure/gemini.ts";
@@ -149,6 +150,11 @@ export function publicBattle(battle: Battle) {
     playerMaxHealth: combat.playerStats?.health ?? 100,
     activeProfessorId: combat.activeProfessorId ?? null,
     fighters: combat.fighters ?? null,
+    // Both fighters' levels, and the percentage each one's level lifts their attack, defense,
+    // and speed (100 means no bonus). The arena uses the bonuses for running speed.
+    level: levelsOf(combat).enemy,
+    playerLevel: levelsOf(combat).player,
+    levelBonus: levelBonuses(combat),
     status: combat.status,
     eventNumber: combat.pendingEvent === null ? null : combat.pendingEvent + 1,
     eventsTriggered: combat.eventsTriggered,

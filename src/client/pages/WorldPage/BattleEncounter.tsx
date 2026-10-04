@@ -47,7 +47,8 @@ export default function BattleEncounter({
   professor,
   onLeave,
 }: {
-  professor: LegendaryProfessor;
+  // The professor met on the map, with the level they rolled when they appeared.
+  professor: LegendaryProfessor & { level: number };
   onLeave: () => void;
 }) {
   const [battle, setBattle] = useState<BattleView | null>(null);
@@ -127,7 +128,7 @@ export default function BattleEncounter({
 
   useEffect(() => {
     mounted.current = true;
-    initial.current ??= startBattle(encounterId.current, professor.id);
+    initial.current ??= startBattle(encounterId.current, professor.id, professor.level);
     let active = true;
     initial.current
       .then((value) => {
@@ -265,7 +266,7 @@ export default function BattleEncounter({
         ? await (waiting
             ? loadBattleQuestion(battle.id)
             : loadBattle(battle.id))
-        : await startBattle(encounterId.current, professor.id);
+        : await startBattle(encounterId.current, professor.id, professor.level);
       if (mounted.current) {
         retry.current = null;
         setError("");
@@ -404,7 +405,9 @@ export default function BattleEncounter({
           <div>
             <p className="eyebrow">WILD PROFESSOR BATTLE</p>
             <h2 id="battle-title">{professor.name}</h2>
-            <p className="encounter-meta">Legendary · {professor.department}</p>
+            <p className="encounter-meta">
+              Legendary · Lv. {professor.level} · {professor.department}
+            </p>
           </div>
         </div>
         {battle ? (

@@ -13,6 +13,15 @@ export type BattleView = {
   status: "summoning" | "fighting" | "question" | "won" | "lost" | "fled";
   activeProfessorId?: string | null;
   fighters?: SummonFighter[] | null;
+  /** The wild professor's level; null for a battle saved before levels. */
+  level?: number | null;
+  /** The summoned fighter's level (1 for the student). */
+  playerLevel?: number;
+  /**
+   * How much each fighter's level lifts their attack, defense, and speed, as a whole percentage:
+   * 100 is no bonus, and only the higher-level fighter gets one.
+   */
+  levelBonus?: { player: number; enemy: number };
   eventNumber: number | null;
   eventsTriggered: number;
   question: (PublicQuestion & { expiresAt: number }) | null;
@@ -95,6 +104,22 @@ function parseBattle(value: unknown): BattleView {
     typeof b.activeProfessorId !== "string"
   )
     throw new ApiError("Invalid summoned professor.");
+  // Levels and level bonuses set running speeds, so they must be real whole numbers.
+  if (
+    (b.level !== undefined && b.level !== null && !integer(b.level)) ||
+    (b.playerLevel !== undefined && !integer(b.playerLevel))
+  )
+    throw new ApiError("Invalid battle levels.");
+  if (b.levelBonus !== undefined) {
+    const bonus = record(b.levelBonus);
+    if (
+      !integer(bonus.player) ||
+      (bonus.player as number) < 100 ||
+      !integer(bonus.enemy) ||
+      (bonus.enemy as number) < 100
+    )
+      throw new ApiError("Invalid battle levels.");
+  }
   if (b.fighters !== undefined && b.fighters !== null) {
     if (!Array.isArray(b.fighters))
       throw new ApiError("Invalid battle collection.");
@@ -153,9 +178,10 @@ function parseBattle(value: unknown): BattleView {
 export async function startBattle(
   encounterId: string,
   professorId: string,
+  level: number,
 ): Promise<BattleView> {
   return parseBattle(
-    await request("/api/battle/start", { encounterId, professorId }),
+    await request("/api/battle/start", { encounterId, professorId, level }),
   );
 }
 /** Loads authoritative battle state after a conflict or a lost reply. */

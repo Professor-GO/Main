@@ -76,12 +76,27 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
     };
   };
   const id = randomUUID();
-  let reply = await call("battle/start", {
+  let reply = await call("battle/start", { level: 10,
     encounterId: id,
     professorId: "frank-wood",
   });
   assert.equal(reply.status, 200);
   assert.equal(reply.data.status, "summoning");
+  // The professor keeps the level they rolled on the map; the summoned fighter's level is 1 until
+  // they are levelled up, so the professor's stats get 100% + 5% x 9 levels.
+  assert.equal(reply.data.level, 10);
+  for (const level of [9, 101, 10.5, "50", undefined])
+    assert.equal(
+      (
+        await call("battle/start", {
+          encounterId: randomUUID(),
+          professorId: "frank-wood",
+          level,
+        })
+      ).status,
+      400,
+      `level ${String(level)}`,
+    );
   assert.equal(reply.data.playerHealth, 0);
   assert.equal(reply.data.fighters?.length, 2);
   assert.equal(
@@ -116,6 +131,8 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   assert.equal(reply.data.status, "fighting");
   assert.equal(reply.data.activeProfessorId, "tor-aamodt");
   assert.equal(reply.data.playerHealth, 57);
+  assert.equal(reply.data.playerLevel, 1);
+  assert.deepEqual(reply.data.levelBonus, { player: 100, enemy: 145 });
   assert.deepEqual(
     (await call(`battle/${id}/action`, summonCommand)).data,
     reply.data,
@@ -141,13 +158,13 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
     409,
   );
   assert.equal(
-    (await call("battle/start", { encounterId: id, professorId: "frank-wood" }))
+    (await call("battle/start", { level: 10, encounterId: id, professorId: "frank-wood" }))
       .data.health,
     50,
   );
   assert.equal(
     (
-      await call("battle/start", {
+      await call("battle/start", { level: 10,
         encounterId: randomUUID(),
         professorId: "tor-aamodt",
       })
@@ -341,7 +358,7 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
 
   // A storage failure rolls back both HP and the idempotency receipt.
   const anotherId = randomUUID();
-  await call("battle/start", {
+  await call("battle/start", { level: 10,
     encounterId: anotherId,
     professorId: "frank-wood",
   });
@@ -412,7 +429,7 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   assert.equal(reserves.data.status, "lost");
   assert.ok(reserves.data.fighters?.every((fighter) => fighter.defeated));
   const rollbackId = randomUUID();
-  await call("battle/start", {
+  await call("battle/start", { level: 10,
     encounterId: rollbackId,
     professorId: "frank-wood",
   });

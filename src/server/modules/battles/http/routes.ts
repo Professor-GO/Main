@@ -6,6 +6,7 @@ import {
   enemyStrike,
   resolveQuiz,
   strike,
+  WILD_LEVELS,
 } from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
 import {
   changeBattle,
@@ -98,8 +99,18 @@ export function battleRoutes({ db, auth }: AppContext) {
     .all(allowMethods("POST"))
     .post(checkOrigin, rateLimiter(30), jsonBody, async (request, response) => {
       const user = await requireUser(auth, request);
-      const { encounterId, professorId } = request.body;
+      const { encounterId, professorId, level } = request.body;
       if (!uuid(encounterId)) throw httpError(400, "Choose a valid encounter.");
+      // The level the professor rolled when they appeared on the campus map.
+      if (
+        !Number.isInteger(level) ||
+        level < WILD_LEVELS.min ||
+        level > WILD_LEVELS.max
+      )
+        throw httpError(
+          400,
+          `Choose a level from ${WILD_LEVELS.min} to ${WILD_LEVELS.max}.`,
+        );
       const professor = GACHA_POOL.find(
         (entry) => entry.id === professorId && entry.rarity === "Legendary",
       );
@@ -113,7 +124,7 @@ export function battleRoutes({ db, auth }: AppContext) {
             professorName: professor.name,
             version: 0,
             combat: prepareSummons(
-              createCombat(professor.stats),
+              createCombat(professor.stats, Math.random, level),
               inventoryFor(db, user.id).map((item) => ({
                 id: item.professor.id,
                 name: item.professor.name,

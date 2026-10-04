@@ -74,18 +74,28 @@ export default function BattleStage({
   const playing = useRef(false);
   const pump = useRef<() => void>(() => {});
   const arena = useRef(createArena());
-  const speed = enemySpeed(enemyStats);
+  // The higher-level fighter runs faster by their level bonus (100 means no bonus). The AI also
+  // sees the boosted speed stat, so a higher-level professor attacks more often.
+  const bonus = battle.levelBonus ?? { player: 100, enemy: 100 };
+  const speed = (enemySpeed(enemyStats) * bonus.enemy) / 100;
+  const playerSpeed = (ARENA.playerSpeed * bonus.player) / 100;
   const brain = useRef<ReturnType<typeof createEnemyBrain> | null>(null);
-  brain.current ??= createEnemyBrain(enemyStats, speed);
+  brain.current ??= createEnemyBrain(
+    enemyStats && {
+      ...enemyStats,
+      speed: (enemyStats.speed * bonus.enemy) / 100,
+    },
+    speed,
+  );
   // The animation each rig is showing, so a new one starts only when the pose changes.
   const shown = useRef<{ player: Pose | null; enemy: Pose | null }>({
     player: null,
     enemy: null,
   });
   // The latest props, read by the frame loop without restarting it.
-  const latest = useRef({ battle, running, onLand, speed });
+  const latest = useRef({ battle, running, onLand, speed, playerSpeed });
   useLayoutEffect(() => {
-    latest.current = { battle, running, onLand, speed };
+    latest.current = { battle, running, onLand, speed, playerSpeed };
   });
 
   useLayoutEffect(() => {
@@ -190,6 +200,7 @@ export default function BattleStage({
         running: live,
         onLand: land,
         speed: run,
+        playerSpeed: dash,
       } = latest.current;
       if (actors && live && !playing.current && seconds > 0 && brain.current) {
         const command = brain.current.decide(
@@ -208,6 +219,7 @@ export default function BattleStage({
           command,
           seconds,
           run,
+          dash,
         );
         arena.current = result.state;
         draw(actors);
@@ -255,11 +267,19 @@ export default function BattleStage({
     >
       <div className="battle-fighter-labels">
         <span>
-          <small>YOUR FIGHTER</small>
+          <small>
+            YOUR FIGHTER
+            {battle.playerLevel !== undefined && ` · LV. ${battle.playerLevel}`}
+            {bonus.player > 100 && ` · ${bonus.player}% STATS`}
+          </small>
           {player.name}
         </span>
         <span>
-          <small>WILD PROFESSOR</small>
+          <small>
+            WILD PROFESSOR
+            {typeof battle.level === "number" && ` · LV. ${battle.level}`}
+            {bonus.enemy > 100 && ` · ${bonus.enemy}% STATS`}
+          </small>
           {enemy.name}
         </span>
       </div>

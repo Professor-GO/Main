@@ -290,6 +290,7 @@ function separate(a: Fighter, b: Fighter): void {
  * @param command - What the enemy AI wants to do.
  * @param seconds - How long the frame lasts.
  * @param speed - How fast the enemy runs (see enemySpeed).
+ * @param playerSpeed - How fast the player runs: ARENA.playerSpeed, raised by any level bonus.
  * @returns The arena after the frame, and the punches that landed during it.
  */
 export function stepArena(
@@ -298,6 +299,7 @@ export function stepArena(
   command: EnemyCommand,
   seconds: number,
   speed: number = enemySpeed(),
+  playerSpeed: number = ARENA.playerSpeed,
 ): { state: ArenaState; events: ArenaEvent[] } {
   const player = { ...state.player };
   const enemy = { ...state.enemy };
@@ -310,7 +312,7 @@ export function stepArena(
     playerMove,
     input.jump,
     input.punch,
-    ARENA.playerSpeed,
+    playerSpeed,
     ARENA.playerCooldown,
     seconds,
   );
