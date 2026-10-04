@@ -77,7 +77,10 @@ export default function WorldPage({ onBack }: WorldPageProps) {
     spawnScreens: [],
     chasedBy: null,
   });
-  const [encounter, setEncounter] = useState<LegendaryProfessor | null>(null);
+  // The professor the player has met, with the level they rolled when they appeared.
+  const [encounter, setEncounter] = useState<
+    (LegendaryProfessor & { level: number }) | null
+  >(null);
   const [fighting, setFighting] = useState(false);
 
   useEffect(() => {
@@ -110,7 +113,7 @@ export default function WorldPage({ onBack }: WorldPageProps) {
       canvas: canvas.current,
       professors,
       onHud: setHud,
-      onEncounter: setEncounter,
+      onEncounter: (professor, level) => setEncounter({ ...professor, level }),
     });
     game.current = running;
     return () => {
@@ -235,7 +238,7 @@ export default function WorldPage({ onBack }: WorldPageProps) {
                 <p className="eyebrow">★ A LEGENDARY PROFESSOR APPEARED</p>
                 <h2 id="encounter-title">{encounter.name}</h2>
                 <p className="encounter-meta">
-                  Legendary · {encounter.department}
+                  Legendary · Lv. {encounter.level} · {encounter.department}
                 </p>
                 <p className="encounter-note">
                   Challenge {encounter.name}. Watch for three timed coding

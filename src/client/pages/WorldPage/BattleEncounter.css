@@ -125,6 +125,19 @@
 .battle-actions .secondary-button {
   margin-top: 0;
 }
+.battle-controls {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 8px;
+  /* Holding a button down must not scroll or zoom the page on touch screens. */
+  touch-action: none;
+  user-select: none;
+}
+.battle-controls button {
+  flex: 1;
+  min-width: 52px;
+}
 .battle-outcome {
   font-weight: 700;
 }
@@ -171,4 +184,36 @@
   .battle-card.is-quiz .battle-actions .primary-button {
     display: none;
   }
+}
+.battle-summon {
+  padding: 14px;
+  margin: 12px 0;
+  border: 1px solid #9bb56a;
+  border-radius: 10px;
+  background: #edf4e1;
+}
+.battle-summon h3 {
+  margin-top: 0;
+}
+.battle-summon p {
+  font-size: 12px;
+}
+.battle-attack-key {
+  align-self: center;
+  white-space: nowrap;
+  padding: 8px;
+}
+.battle-attack-key kbd {
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: 3px 7px;
+  font-weight: bold;
+}
+@media (hover: hover) and (pointer: fine) {
+  .battle-controls .battle-touch-punch {
+    display: none;
+  }
+}
+@media (pointer: coarse) {
+  .battle-attack-key { display: none; }
 }

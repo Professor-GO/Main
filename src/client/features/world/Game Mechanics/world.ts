@@ -481,12 +481,28 @@ export const SPAWNING = {
   maxActive: 3,
   // They appear at least this far from the player, in tiles.
   minDistance: 10,
+  // Each one rolls a level from minLevel to maxLevel, every level equally likely. The server
+  // checks the same range (WILD_LEVELS in BackEnd/Game Engine/encounterBattle.ts).
+  minLevel: 10,
+  maxLevel: 100,
 };
+
+/**
+ * Rolls the level of a Legendary professor appearing on the map.
+ * @param random - A random number generator, such as Math.random.
+ * @returns A whole level from SPAWNING.minLevel to SPAWNING.maxLevel.
+ */
+export function pickSpawnLevel(random: () => number): number {
+  const range = SPAWNING.maxLevel - SPAWNING.minLevel + 1;
+  return SPAWNING.minLevel + Math.min(range - 1, Math.floor(random() * range));
+}
 
 /** A Legendary professor roaming somewhere on the map. */
 export type Spawn = {
   id: number;
   professorId: string;
+  // Their level, from SPAWNING.minLevel to SPAWNING.maxLevel.
+  level: number;
   x: number;
   y: number;
   // When they leave, in seconds on the game clock.

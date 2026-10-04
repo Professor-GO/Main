@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   STUDENT_STATS,
   createCombat,
+  enemyStrike,
   resolveQuiz,
   strike,
 } from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
@@ -97,16 +98,32 @@ test("higher defense means less damage taken", () => {
   assert.ok(strong.health > weak.health);
 });
 
-test("the professor hits back for floor(professor attack / student defense)", () => {
+test("the player's strike never hurts the player: the professor must land their own punch", () => {
+  const state = strike(fight(1000, 50, 60));
+  assert.equal(state.playerHealth, STUDENT_STATS.health);
+});
+
+test("the professor's punch deals floor(professor attack / student defense), with a one-damage minimum", () => {
   for (const attack of [50, 39, 19]) {
-    const state = strike(fight(1000, attack, 60));
+    const state = enemyStrike(fight(1000, attack, 60));
     assert.equal(
       state.playerHealth,
-      STUDENT_STATS.health - Math.floor(attack / STUDENT_STATS.defense),
+      STUDENT_STATS.health -
+        Math.max(1, Math.floor(attack / STUDENT_STATS.defense)),
       `attack ${attack}`,
     );
+    assert.equal(state.health, 1000);
     assert.equal(state.status, "fighting");
   }
+});
+
+test("enemyStrike returns a new state and refuses while a question is waiting", () => {
+  const before = fight(100, 40, 20);
+  const snapshot = structuredClone(before);
+  assert.notEqual(enemyStrike(before), before);
+  assert.deepEqual(before, snapshot);
+  const paused = strike(strike(before));
+  assert.throws(() => enemyStrike(paused), /only strike during the fight/);
 });
 
 test("strike returns a new state and leaves the old one unchanged", () => {
@@ -120,7 +137,7 @@ test("strike returns a new state and leaves the old one unchanged", () => {
 
 test("a hit that crosses a checkpoint stops there and asks a question", () => {
   // Checkpoints at 67, 34, and 10 health; each strike deals 30.
-  let state = strike(fight(100, 40, 20));
+  let state = enemyStrike(strike(fight(100, 40, 20)));
   assert.equal(state.health, 70);
   assert.equal(state.playerHealth, 98);
 
@@ -130,7 +147,6 @@ test("a hit that crosses a checkpoint stops there and asks a question", () => {
   assert.equal(state.status, "question");
   assert.equal(state.pendingEvent, 0);
   assert.equal(state.eventsTriggered, 1);
-  // The professor does not hit back while the strike is paused.
   assert.equal(state.playerHealth, 98);
 });
 
@@ -153,26 +169,27 @@ test("a correct answer heals nothing and finishes the paused strike", () => {
   assert.equal(state.remainingDamage, 0);
   assert.equal(state.pendingEvent, null);
   assert.equal(state.status, "fighting");
-  assert.equal(state.playerHealth, 96);
+  assert.equal(state.playerHealth, STUDENT_STATS.health);
 });
 
 test("a wrong answer heals 50% to 80% of lost health before the strike finishes", () => {
   // Paused at 67 of 100 health, so 33 is lost and 27 damage is still waiting.
-  const paused = strike(strike(fight(100, 40, 20)));
+  // The professor landed one punch before the pause, leaving the player on 98.
+  const paused = strike(enemyStrike(strike(fight(100, 40, 20))));
 
   const lowest = resolveQuiz(paused, false, LOWEST_ROLL);
   assert.equal(lowest.healingPercent, 50);
   assert.equal(lowest.healed, 16);
   assert.equal(lowest.state.health, 67 + 16 - 27);
   assert.equal(lowest.playerDamage, 78);
-  assert.equal(lowest.state.playerHealth, 18); // 98 - floor(98 * 0.8) - 2 counterattack.
+  assert.equal(lowest.state.playerHealth, 20); // 98 - floor(98 * 0.8).
 
   const highest = resolveQuiz(paused, false, HIGHEST_ROLL);
   assert.equal(highest.healingPercent, 80);
   assert.equal(highest.healed, 26);
   assert.equal(highest.state.health, 67 + 26 - 27);
   assert.equal(highest.playerDamage, 78);
-  assert.equal(highest.state.playerHealth, 18);
+  assert.equal(highest.state.playerHealth, 20);
 });
 
 test("the wrong-answer penalty uses current HP, rounds damage down, and does not mutate the input", () => {
@@ -187,13 +204,16 @@ test("the wrong-answer penalty uses current HP, rounds damage down, and does not
   }
 });
 
-test("the penalty can lead to defeat when the professor counterattacks", () => {
+test("the penalty alone never knocks the player out; the professor's next punch can", () => {
   const paused = { ...strike(strike(fight(100, 40, 20))), playerHealth: 5 };
   const result = resolveQuiz(paused, false, LOWEST_ROLL);
   assert.equal(result.playerDamage, 4);
   assert.equal(result.healed, 16);
-  assert.equal(result.state.playerHealth, 0);
-  assert.equal(result.state.status, "lost");
+  assert.equal(result.state.playerHealth, 1);
+  assert.equal(result.state.status, "fighting");
+  const finished = enemyStrike(result.state);
+  assert.equal(finished.playerHealth, 0);
+  assert.equal(finished.status, "lost");
 });
 
 test("wrong answers still cost health when deferred damage reaches another quiz or wins the fight", () => {
@@ -228,8 +248,8 @@ test("a lethal hit cannot skip any question", () => {
   assert.equal(state.health, 0);
   assert.equal(state.status, "won");
   assert.equal(state.eventsTriggered, 3);
-  // A knocked-out professor does not hit back.
   assert.equal(state.playerHealth, STUDENT_STATS.health);
+  assert.throws(() => enemyStrike(state), /only strike during the fight/);
 });
 
 test("professor health never drops below zero", () => {
@@ -245,9 +265,10 @@ test("professor health never drops below zero", () => {
 });
 
 test("the player loses when their health reaches zero", () => {
-  const state = strike(fight(1000, 5000, 60));
+  const state = enemyStrike(fight(1000, 5000, 60));
 
   assert.equal(state.playerHealth, 0);
   assert.equal(state.status, "lost");
   assert.throws(() => strike(state), /Finish the current question/);
+  assert.throws(() => enemyStrike(state), /only strike during the fight/);
 });

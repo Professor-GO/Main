@@ -1,6 +1,6 @@
 # Game Engine
 
-A university-themed game prototype with account access, a player lobby, coding questions that award tokens, and wild professor battles on the campus map. Players recruit professors from a gashapon machine on the recruit page; the team button remains a placeholder.
+A university-themed game prototype with account access, a player lobby, coding questions that award tokens, and wild professor battles on the campus map. Players recruit professors from a gashapon machine and view their collection through **View your professors** in the lobby.
 
 ## Run locally
 
@@ -105,7 +105,7 @@ Browser API requests are same-origin. POST bodies are JSON objects; errors use `
 | POST | `/api/battle/start` | Start/retry a Legendary encounter with `{ encounterId, professorId }` |
 | GET | `/api/battle/:id` | Owned battle state; settles expired questions |
 | GET | `/api/battle/:id/question` | Generate/retrieve the current private battle question |
-| POST | `/api/battle/:id/action` | Attack, answer, timeout, or flee with an idempotent action ID and expected version |
+| POST | `/api/battle/:id/action` | Summon, player/enemy landed hit, answer, timeout, or flee with an idempotent action ID and expected version; summon adds `professorId` |
 
 Accounts begin with 50 tokens; a pull costs 10. Professor IDs remain stable inventory keys, and duplicates add copies. Level-up retains at least one copy.
 
@@ -139,10 +139,11 @@ Map mechanics live in `src/client/features/world/Game Mechanics/`: the rules (la
 
 ### Wild battle quizzes
 
-- This first encounter fight uses a student with 100 HP, 600 attack, and 20 defense as temporary combat defaults. Professors use their roster stats. A turn deals `floor(attack / defense)` damage in each direction; health cannot go below zero. Team selection and level-based stats are future work.
+- Entering an encounter pauses at **Choose your first professor**. The server saves a snapshot of the player's owned professors, and an explicit **Summon professor** command starts combat. Summoned fighters and wild enemies use their listed roster HP, attack and defense. Each landed punch deals `max(1, floor(attack / defense))` damage, with HP clamped at zero. Level-based stat growth is future work.
+- When a summoned professor reaches zero HP, combat pauses to choose an undefeated reserve. Each distinct owned professor can fight once per encounter; duplicate copies remain upgrade materials. The new fighter enters at full HP while enemy HP and quiz checkpoints remain unchanged. The battle ends in defeat when all professors are knocked out. An empty collection must recruit before fighting, or run away.
 - Each battle rolls a whole-HP trigger inside **2/3–3/4** of maximum professor health, another inside **1/3–3/5**, and a final trigger at **10%** (whole HP rounded down). Each event fires once, even if healing raises HP above an earlier trigger.
-- A strike pauses at a crossed checkpoint. Its remaining damage resumes after the quiz; a large or lethal strike can therefore interrupt for several quizzes before finishing. The professor counterattacks once when that strike finishes, unless defeated.
-- Each popup reuses the Gemini coding-question generator and local fallback. Combat pauses while the question is generated. The server starts a **10-second** deadline after generation. An incorrect answer or timeout heals the professor by `floor((maxHP - currentHP) * percent / 100)`, where `percent` is a uniformly random integer from **50 through 80**, and costs the player `floor(currentPlayerHP * 80 / 100)` health. Both penalties apply before the interrupted strike resumes; the usual professor counterattack can cause defeat afterward. Correct answers apply neither penalty. These battle questions do not award practice tokens.
+- A strike pauses at a crossed checkpoint. Its remaining damage resumes after the quiz; a large or lethal strike can therefore interrupt for several quizzes before finishing. The player's movement and enemy AI determine which punches land; enemy hits are settled separately from player hits.
+- Each popup reuses the Gemini coding-question generator and local fallback. Combat pauses while the question is generated. The server starts a **10-second** deadline after generation. An incorrect answer or timeout heals the professor by `floor((maxHP - currentHP) * percent / 100)`, where `percent` is a uniformly random integer from **50 through 80**, and costs the active fighter `floor(currentPlayerHP * 80 / 100)` health. Both penalties apply before the interrupted strike resumes. Correct answers apply neither penalty. These battle questions do not award practice tokens.
 - Battle state, the private answer, deadlines, and processed action IDs persist in SQLite. Answers are tied to the player's current battle question. Late answers count as wrong; explicit retries cannot apply damage or healing twice. Network failures show Retry; stale versions require Refresh battle. The browser map and encounter identity still reset on reload, so there is no resume-battle UI or reward-bearing encounter validation yet.
 
 Question correctness and rewards remain server-owned. A correct first answer awards one token atomically with the recorded choice. Same-choice retries are idempotent; changed answers are rejected. A lost response enables only explicit same-choice retry in the UI, not automatic resubmission. React renders generated/player content as text.
@@ -151,8 +152,8 @@ Question correctness and rewards remain server-owned. A correct first answer awa
 
 Campus fights show two articulated SVG professors, adapted from `Assets/stickman-react.zip`, with the transparent head cutouts in `Assets/battle/heads/`. `src/client/features/battle/` contains the reusable rig, typed GSAP controller, fighter artwork mapping, and the battle arena.
 
-Before the first attack, **Battle as** lets the player choose a professor from their authenticated inventory. Empty collections use a student practice fighter. Professor selection currently changes the fighter's appearance; existing student practice stats and server combat rules are retained. It does not implement team combat or level-based battle stats.
+Choose your first summon before combat starts, then choose another available professor after a knockout. Defeated fighters are excluded from the summon selector and remain unavailable for that encounter. **A/D** or **left/right arrows** move, **W/up arrow** jumps, and **J** attacks. Desktop controls show the J key in place of an attack button; touch devices retain a punch button. Controls pause during quizzes and summon choices, and do not move the overworld behind the popup.
 
-Confirmed battle results trigger player lunges/punches, enemy hit reactions and counterattacks, quiz healing, victory waves, defeat poses, and fleeing. Loading a question or retrying an already processed command cannot replay a hit. The server remains the only authority for health, damage, question deadlines and healing. Combat controls wait for attack animations; quiz answers and their ten-second countdown remain available during visual transitions. Reduced-motion preferences suppress continuous movement while retaining the outcome poses and feedback.
+Live movement and punches animate both fighters; the enemy AI approaches, attacks and dodges. Confirmed battle results trigger quiz healing, victory waves, defeat poses and fleeing. Replacement summons reset arena positions and motions. Loading a question or retrying an already processed command cannot replay a hit. The server remains the only authority for health, damage, question deadlines and healing. Quiz answers and their ten-second countdown remain available during visual transitions. Reduced-motion preferences suppress continuous movement while retaining outcome poses and feedback.
 
 The arena scales for desktop/mobile and compacts while a timed question is open. Timelines and preference listeners are cleaned up on unmount. The original demo's fixed 25-HP damage and automatic enemy respawn are not used. Only explicitly imported artwork is bundled; the ZIP and demo files stay private.

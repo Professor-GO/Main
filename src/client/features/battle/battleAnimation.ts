@@ -36,5 +36,11 @@ export function battleBeats(
     after.status === "fled"
   )
     beats.push(after.status);
+  else if (
+    after.status === "summoning" &&
+    after.activeProfessorId &&
+    after.playerHealth === 0
+  )
+    beats.push("lost");
   return beats;
 }

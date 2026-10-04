@@ -373,7 +373,7 @@ function drawHouse(
 
 /**
  * Draws a Legendary professor: a glowing golden token with their face, floating gently above a
- * pool of light, with their name above. One chasing the player glows red instead.
+ * pool of light, with their name above and their level above that. One chasing the player glows red instead.
  * @param context - The canvas.
  * @param spawn - The professor.
  * @param x - Their position on the screen, in tiles.
@@ -466,6 +466,17 @@ function drawSpawn(
   context.fill();
   context.fillStyle = "#ffe08a";
   context.fillText(label, centre.x, centre.y - radius - 14);
+
+  // Their level on a smaller tag above the name.
+  const level = `Lv. ${spawn.level}`;
+  context.font = "bold 10px 'Segoe UI', Arial, sans-serif";
+  const levelWidth = context.measureText(level).width + 12;
+  context.fillStyle = spawn.chasing ? "rgb(122 22 16 / 0.92)" : "rgb(37 75 63 / 0.92)";
+  context.beginPath();
+  context.roundRect(centre.x - levelWidth / 2, centre.y - radius - 42, levelWidth, 15, 7.5);
+  context.fill();
+  context.fillStyle = "#fff6d6";
+  context.fillText(level, centre.x, centre.y - radius - 34.5);
 }
 
 /**

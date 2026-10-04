@@ -1,17 +1,33 @@
-/** Server-owned combat rules for wild professor encounters. */
+/**
+ * Server-owned combat rules for wild professor encounters. The fight itself runs in real time in
+ * the browser; each landed punch arrives here as one strike, either the player's (strike) or the
+ * professor's (enemyStrike), and these rules decide the damage.
+ */
 export const STUDENT_STATS = { health: 100, attack: 600, defense: 20 };
+
+export type SummonFighter = {
+  id: string;
+  name: string;
+  level: number;
+  stats: { health: number; attack: number; defense: number; speed: number };
+  defeated: boolean;
+};
 
 export type CombatState = {
   maxHealth: number;
   health: number;
   playerHealth: number;
+  /** Optional for battles saved before professor summoning was introduced. */
+  playerStats?: SummonFighter["stats"];
+  activeProfessorId?: string;
+  fighters?: SummonFighter[];
   attack: number;
   defense: number;
   checkpoints: number[];
   eventsTriggered: number;
   pendingEvent: number | null;
   remainingDamage: number;
-  status: "fighting" | "question" | "won" | "lost" | "fled";
+  status: "summoning" | "fighting" | "question" | "won" | "lost" | "fled";
 };
 
 /** Chooses one checkpoint per requested range, once at the start of a fight. */
@@ -43,7 +59,40 @@ export function createCombat(
   };
 }
 
-/** Applies a strike, pausing at a crossed checkpoint so a lethal hit cannot skip a quiz. */
+/** Takes an inventory snapshot; duplicate copies remain upgrades, rather than extra lives. */
+export function prepareSummons(
+  state: CombatState,
+  fighters: SummonFighter[],
+): CombatState {
+  return {
+    ...structuredClone(state),
+    fighters: structuredClone(fighters),
+    playerHealth: 0,
+    status: "summoning",
+  };
+}
+
+/** Starts or resumes combat with a fresh, undefeated member of the saved collection. */
+export function summon(state: CombatState, professorId: string): CombatState {
+  if (state.status !== "summoning")
+    throw new Error(
+      "Choose a professor only before fighting or after a knockout.",
+    );
+  const fighter = state.fighters?.find(
+    (entry) => entry.id === professorId && !entry.defeated,
+  );
+  if (!fighter)
+    throw new Error("Choose an available professor from your collection.");
+  return {
+    ...structuredClone(state),
+    playerStats: { ...fighter.stats },
+    activeProfessorId: fighter.id,
+    playerHealth: fighter.stats.health,
+    status: "fighting",
+  };
+}
+
+/** Applies the player's strike, pausing at a crossed checkpoint so a lethal hit cannot skip a quiz. */
 function applyDamage(state: CombatState, damage: number): void {
   const checkpoint = state.checkpoints[state.eventsTriggered];
   const checkpointHealth = checkpoint ?? -1;
@@ -57,22 +106,48 @@ function applyDamage(state: CombatState, damage: number): void {
   }
   state.health = Math.max(0, state.health - damage);
   state.remainingDamage = 0;
-  if (state.health === 0) state.status = "won";
-  else {
-    state.playerHealth = Math.max(
-      0,
-      state.playerHealth - Math.floor(state.attack / STUDENT_STATS.defense),
-    );
-    state.status = state.playerHealth === 0 ? "lost" : "fighting";
-  }
+  state.status = state.health === 0 ? "won" : "fighting";
 }
 
-/** Deals floor(attack / defense) damage; the professor replies after all quiz interruptions. */
+/** A landed hit deals floor(attack / defense), with a minimum of one damage. */
+function hitDamage(attack: number, defense: number): number {
+  return Math.max(1, Math.floor(attack / defense));
+}
+
+/** The player's punch landed, using the summoned professor's stats. */
 export function strike(state: CombatState): CombatState {
   if (state.status !== "fighting")
     throw new Error("Finish the current question before attacking.");
   const next = structuredClone(state);
-  applyDamage(next, Math.floor(STUDENT_STATS.attack / state.defense));
+  applyDamage(
+    next,
+    hitDamage(state.playerStats?.attack ?? STUDENT_STATS.attack, state.defense),
+  );
+  return next;
+}
+
+/** The professor's punch landed; a knockout pauses for reserves or ends the encounter. */
+export function enemyStrike(state: CombatState): CombatState {
+  if (state.status !== "fighting")
+    throw new Error("The professor can only strike during the fight.");
+  const next = structuredClone(state);
+  next.playerHealth = Math.max(
+    0,
+    next.playerHealth -
+      hitDamage(
+        next.attack,
+        state.playerStats?.defense ?? STUDENT_STATS.defense,
+      ),
+  );
+  if (next.playerHealth === 0) {
+    const fighter = next.fighters?.find(
+      (entry) => entry.id === next.activeProfessorId,
+    );
+    if (fighter) fighter.defeated = true;
+    next.status = next.fighters?.some((entry) => !entry.defeated)
+      ? "summoning"
+      : "lost";
+  }
   return next;
 }
 

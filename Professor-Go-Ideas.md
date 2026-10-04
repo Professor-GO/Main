@@ -1,3 +1,18 @@
+# Professor-Go — core idea
+
+**Professor-Go is a Pokémon-inspired university game that turns coding practice into collecting professors, exploring campus, and battling.** Players earn tokens by answering Gemini-generated multiple-choice coding questions, spend those tokens to recruit professors through gacha, and use their collection in encounters with roaming professors.
+
+The core loop is **learn → earn tokens → recruit and upgrade → explore → battle → repeat**.
+
+- **Learn and recruit:** New accounts start with 50 tokens. Each correct practice answer earns 1 token; recruiting a professor costs 10 tokens. Professors have different rarities, departments and stats, and duplicate copies support level upgrades.
+- **Explore:** Walk around a university overworld, discover roaming professors and trigger encounters.
+- **Fight:** The intended battle experience lets players control their chosen professor against an AI-controlled opponent. Animated stickman bodies with professor faces give each fighter a recognizable identity.
+- **Answer under pressure:** At three enemy-health checkpoints, combat pauses for a coding question with a 10-second limit. Correct answers avoid a penalty. Wrong answers or timeouts heal the enemy and take health from the player's fighter, making coding knowledge part of the battle strategy.
+
+The hook is simple: **your coding knowledge helps you build your collection and survive fights**. The project combines a playful campus setting, professor collecting and action combat with repeated programming practice.
+
+This section summarizes the project concept and intended experience. It is not a claim that every mechanic is complete. The table below is a historical planning audit; consult `PROJECT_MEMORY.md` for later decisions and implementation updates.
+
 ### Professor-Go ideas from the planning document
 
 | Planned idea | Current status | Evidence and remaining work |

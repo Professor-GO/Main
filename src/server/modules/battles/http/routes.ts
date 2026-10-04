@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import {
   createCombat,
+  prepareSummons,
+  summon,
+  enemyStrike,
   resolveQuiz,
   strike,
 } from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
@@ -23,7 +26,10 @@ import {
   rateLimiter,
   requireUser,
 } from "../../accounts/http/session.ts";
-import { GACHA_POOL } from "../../recruitment/application/recruitment.ts";
+import {
+  GACHA_POOL,
+  inventoryFor,
+} from "../../recruitment/application/recruitment.ts";
 import { createCodingQuestion } from "../../questions/infrastructure/gemini.ts";
 import type { Battle } from "../../../../../BackEnd/Persistence Layer/encounterBattles.ts";
 
@@ -106,7 +112,16 @@ export function battleRoutes({ db, auth }: AppContext) {
             professorId: professor.id,
             professorName: professor.name,
             version: 0,
-            combat: createCombat(professor.stats),
+            combat: prepareSummons(
+              createCombat(professor.stats),
+              inventoryFor(db, user.id).map((item) => ({
+                id: item.professor.id,
+                name: item.professor.name,
+                level: item.level,
+                stats: item.professor.stats,
+                defeated: false,
+              })),
+            ),
             quiz: null,
             feedback: null,
           }),
@@ -155,17 +170,31 @@ export function battleRoutes({ db, auth }: AppContext) {
     .all(allowMethods("POST"))
     .post(
       checkOrigin,
-      rateLimiter(120),
+      // Real-time fights send one action per landed punch, from both fighters.
+      rateLimiter(240),
       jsonBody,
       async (request, response) => {
         const user = await requireUser(auth, request);
-        const { actionId, version, kind, questionId, selectedIndex } =
-          request.body;
+        const {
+          actionId,
+          version,
+          kind,
+          questionId,
+          selectedIndex,
+          professorId,
+        } = request.body;
         if (
           !uuid(actionId) ||
           !Number.isSafeInteger(version) ||
           version < 0 ||
-          !["attack", "answer", "timeout", "flee"].includes(kind)
+          ![
+            "summon",
+            "attack",
+            "enemyAttack",
+            "answer",
+            "timeout",
+            "flee",
+          ].includes(kind)
         )
           throw httpError(400, "Choose a valid battle action.");
         if (
@@ -176,10 +205,13 @@ export function battleRoutes({ db, auth }: AppContext) {
             selectedIndex > 3)
         )
           throw httpError(400, "Choose one of the four answers.");
+        if (kind === "summon" && typeof professorId !== "string")
+          throw httpError(400, "Choose a professor to summon.");
         const command = {
           kind,
           version,
           ...(kind === "answer" ? { questionId, selectedIndex } : {}),
+          ...(kind === "summon" ? { professorId } : {}),
         };
         const result = changeBattle(
           db,
@@ -189,6 +221,23 @@ export function battleRoutes({ db, auth }: AppContext) {
           version,
           command,
           (battle) => {
+            if (kind === "summon") {
+              if (
+                battle.combat.status !== "summoning" ||
+                !battle.combat.fighters?.some(
+                  (fighter) => fighter.id === professorId && !fighter.defeated,
+                )
+              )
+                throw httpError(
+                  409,
+                  "Choose an available professor from your collection.",
+                );
+              return {
+                ...battle,
+                combat: summon(battle.combat, professorId),
+                feedback: null,
+              };
+            }
             if (kind === "attack") {
               if (battle.combat.status !== "fighting")
                 throw httpError(
@@ -202,8 +251,22 @@ export function battleRoutes({ db, auth }: AppContext) {
                 feedback: null,
               };
             }
+            if (kind === "enemyAttack") {
+              if (battle.combat.status !== "fighting")
+                throw httpError(409, "The fight is paused.");
+              return {
+                ...battle,
+                combat: enemyStrike(battle.combat),
+                quiz: null,
+                feedback: null,
+              };
+            }
             if (kind === "flee") {
-              if (!["fighting", "question"].includes(battle.combat.status))
+              if (
+                !["summoning", "fighting", "question"].includes(
+                  battle.combat.status,
+                )
+              )
                 throw httpError(409, "This battle has ended.");
               return {
                 ...battle,

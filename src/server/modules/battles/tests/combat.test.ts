@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   createCombat,
+  enemyStrike,
   resolveQuiz,
   strike,
 } from "../../../../../BackEnd/Game Engine/encounterBattle.ts";
@@ -23,13 +24,16 @@ test("checkpoints fall inside both health bands and at 10% for every current pro
   }
 });
 
-test("strikes use floor attack/defense and counterattacks clamp player health at zero", () => {
+test("strikes use floor attack/defense and professor punches clamp player health at zero", () => {
   let state = createCombat({ health: 100, attack: 2000, defense: 80 }, () => 0);
   state = strike(state);
   assert.equal(state.health, 93);
+  assert.equal(state.playerHealth, 100);
+  state = enemyStrike(state);
   assert.equal(state.playerHealth, 0);
   assert.equal(state.status, "lost");
   assert.throws(() => strike(state));
+  assert.throws(() => enemyStrike(state));
 });
 
 test("wrong answers heal 50–80% of current lost HP rounded down; correct answers do not heal", () => {

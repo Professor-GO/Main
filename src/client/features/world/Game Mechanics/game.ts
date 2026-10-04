@@ -17,6 +17,7 @@ import {
   findEncounter,
   isChaser,
   moveSpawn,
+  pickSpawnLevel,
   pickSpawnPoint,
   screenOf,
   walk,
@@ -65,8 +66,9 @@ export type WorldGameOptions = {
   professors: readonly LegendaryProfessor[];
   // Called when the player changes screen or professors come or go.
   onHud(hud: WorldHud): void;
-  // Called when the player walks up to a professor. The player stands still until endEncounter().
-  onEncounter(professor: LegendaryProfessor): void;
+  // Called when the player walks up to a professor, with that professor's level. The player
+  // stands still until endEncounter().
+  onEncounter(professor: LegendaryProfessor, level: number): void;
   // Random numbers for spawning; defaults to Math.random.
   random?: () => number;
 };
@@ -122,6 +124,7 @@ export function startWorldGame(options: WorldGameOptions): WorldGame {
       id: nextSpawnId++,
       professorId: professor.id,
       name: professor.name,
+      level: pickSpawnLevel(random),
       ...point,
       leavesAt: time + SPAWNING.lifetime,
       chaser: isChaser(professor.stats),
@@ -178,7 +181,7 @@ export function startWorldGame(options: WorldGameOptions): WorldGame {
         const professor = professors.find(
           (candidate) => candidate.id === met.professorId,
         );
-        if (professor) onEncounter(professor);
+        if (professor) onEncounter(professor, met.level);
       }
     }
     reportHud();

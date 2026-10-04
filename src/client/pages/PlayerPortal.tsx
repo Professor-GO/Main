@@ -8,6 +8,7 @@ import LobbyPage from "./LobbyPage/LobbyPage";
 import QuestionPage from "./QuestionPage/QuestionPage";
 import RecruitPage from "./RecruitPage/RecruitPage";
 import WorldPage from "./WorldPage/WorldPage";
+import InventoryPage from "./InventoryPage/InventoryPage";
 
 type Session =
   | { kind: "restoring" }
@@ -17,7 +18,7 @@ type Session =
 export default function PlayerPortal() {
   const [session, setSession] = useState<Session>({ kind: "restoring" });
   const [page, setPage] = useState<
-    "lobby" | "question" | "world" | "recruit"
+    "lobby" | "question" | "world" | "recruit" | "inventory"
   >("lobby");
   const restoration = useRef<Promise<Player> | null>(null);
   useEffect(() => {
@@ -64,6 +65,16 @@ export default function PlayerPortal() {
         ? { ...current, player: { ...current.player, tokens } }
         : current,
     );
+  if (page === "inventory")
+    return (
+      <InventoryPage
+        onBack={() => {
+          setPage("lobby");
+          setSession({ ...session, focus: true });
+        }}
+        onRecruit={() => setPage("recruit")}
+      />
+    );
   if (page === "recruit")
     return (
       <RecruitPage
@@ -99,6 +110,7 @@ export default function PlayerPortal() {
       focus={session.focus}
       onQuestion={() => setPage("question")}
       onRecruit={() => setPage("recruit")}
+      onInventory={() => setPage("inventory")}
       onExplore={() => setPage("world")}
       onLogout={() =>
         setSession({

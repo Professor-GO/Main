@@ -75,15 +75,18 @@ test("meeting a Legendary professor shows their card, and moving on lets them sl
   );
   expect(screen.getByRole("img", { name: /screen D2\./ })).toBeVisible();
   act(() =>
-    game.onEncounter({
-      id: "chao-liu",
-      name: "Chao Liu",
-      department: "Mechanical Engineering",
-    }),
+    game.onEncounter(
+      {
+        id: "chao-liu",
+        name: "Chao Liu",
+        department: "Mechanical Engineering",
+      },
+      37,
+    ),
   );
 
   const card = screen.getByRole("dialog", { name: "Chao Liu" });
-  expect(card).toHaveTextContent("Legendary · Mechanical Engineering");
+  expect(card).toHaveTextContent("Legendary · Lv. 37 · Mechanical Engineering");
   expect(card).toHaveTextContent("three timed coding quizzes");
   expect(screen.getByRole("img", { name: "Chao Liu" })).toHaveAttribute(
     "src",

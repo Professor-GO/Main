@@ -18,7 +18,15 @@ const neutral = (): Pose => ({
   scaleY: 1,
   opacity: 1,
 });
-type Motion = "idle" | "attack" | "hit" | "heal" | "wave" | "walk" | "defeated";
+type Motion =
+  | "idle"
+  | "attack"
+  | "hit"
+  | "heal"
+  | "wave"
+  | "walk"
+  | "jump"
+  | "defeated";
 
 /** GSAP motions adapted from the supplied rig. Local SVG transforms keep pivots correct for both scaled actors. */
 export class StickmanController {
@@ -144,6 +152,79 @@ export class StickmanController {
         { rotation: 0, x: 0, y: 0, duration: 0.3, ease: "power2.out" },
         0.5,
       );
+  }
+  /** Turns to face left (-1) or right (1) without interrupting the current motion. */
+  face(side: 1 | -1): void {
+    if (side === this.side || this.destroyed) return;
+    this.side = side;
+    this.poses.flip.scaleX = side;
+    this.poses.headFace.scaleX = side;
+    this.render();
+  }
+  /**
+   * A jab thrown on the spot for the real-time arena, timed to its windup, strike, and recovery.
+   * The arena decides whether it lands, so this only animates.
+   */
+  punch(windup: number, strike: number, recover: number): void {
+    this.enter("attack");
+    this.poses.armRight.rotation = -90;
+    if (this.reduced) {
+      this.render();
+      return;
+    }
+    this.animate()
+      .to(this.poses.upper, { rotation: -8, duration: windup }, 0)
+      .to(this.poses.armRight, { rotation: 40, duration: windup }, 0)
+      .to(this.poses.forearmRight, { rotation: -100, duration: windup }, 0)
+      .to(
+        this.poses.upper,
+        { rotation: 12, duration: strike, ease: "power4.out" },
+        windup,
+      )
+      .to(
+        this.poses.armRight,
+        { rotation: -90, duration: strike, ease: "power4.out" },
+        windup,
+      )
+      .to(this.poses.forearmRight, { rotation: 0, duration: strike }, windup)
+      .to(
+        [this.poses.upper, this.poses.armRight, this.poses.forearmRight],
+        { rotation: 0, duration: recover, ease: "power2.out" },
+        windup + strike,
+      );
+  }
+  /** The archive's walking stride, looping while the fighter runs. */
+  walk(): void {
+    this.enter("walk");
+    if (this.reduced) return;
+    this.animate()
+      .repeat(-1)
+      .yoyo(true)
+      .fromTo(this.poses.legLeft, { rotation: -28 }, { rotation: 28, duration: 0.18 }, 0)
+      .fromTo(this.poses.legRight, { rotation: 28 }, { rotation: -28, duration: 0.18 }, 0)
+      .fromTo(this.poses.armLeft, { rotation: 25 }, { rotation: -25, duration: 0.18 }, 0)
+      .fromTo(this.poses.armRight, { rotation: -25 }, { rotation: 25, duration: 0.18 }, 0);
+  }
+  /** Knees tucked and arms up while in the air. */
+  jump(): void {
+    this.enter("jump");
+    const tuck = {
+      legLeft: -35,
+      shinLeft: 60,
+      legRight: 25,
+      shinRight: 45,
+      armLeft: -140,
+      armRight: 140,
+    } as const;
+    if (this.reduced) {
+      for (const [joint, rotation] of Object.entries(tuck))
+        this.poses[joint as Joint].rotation = rotation;
+      this.render();
+      return;
+    }
+    const timeline = this.animate();
+    for (const [joint, rotation] of Object.entries(tuck))
+      timeline.to(this.poses[joint as Joint], { rotation, duration: 0.12 }, 0);
   }
   /** Original stagger and recovery, with recoil pointing away from the opposing fighter. */
   hit(onDone: () => void = () => {}): void {

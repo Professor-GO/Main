@@ -128,7 +128,7 @@ export function changeBattle(
   }
 }
 
-/** Removes answers, checkpoint rolls, combat stats and unfinished-strike details from API replies. */
+/** Publishes the summon roster and HP, hiding answers, checkpoint rolls and unfinished strikes. */
 export function publicBattle(battle: Battle) {
   const { combat, quiz } = battle;
   const question =
@@ -146,7 +146,9 @@ export function publicBattle(battle: Battle) {
     health: combat.health,
     maxHealth: combat.maxHealth,
     playerHealth: combat.playerHealth,
-    playerMaxHealth: 100,
+    playerMaxHealth: combat.playerStats?.health ?? 100,
+    activeProfessorId: combat.activeProfessorId ?? null,
+    fighters: combat.fighters ?? null,
     status: combat.status,
     eventNumber: combat.pendingEvent === null ? null : combat.pendingEvent + 1,
     eventsTriggered: combat.eventsTriggered,

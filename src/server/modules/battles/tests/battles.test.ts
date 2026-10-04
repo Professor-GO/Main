@@ -52,6 +52,13 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
     .map((value) => value.split(";")[0])
     .join("; ");
   const account = (await signup.json()) as { user: { id: string } };
+  db.prepare("INSERT INTO inventory (user_id, professor_id) VALUES (?, ?)").run(
+    account.user.id,
+    "tor-aamodt",
+  );
+  db.prepare(
+    "INSERT INTO inventory (user_id, professor_id, copies) VALUES (?, ?, ?)",
+  ).run(account.user.id, "chao-liu", 4);
   const call = async (path: string, body?: object) => {
     const response = await fetch(`${origin}/api/${path}`, {
       method: body ? "POST" : "GET",
@@ -74,6 +81,65 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
     professorId: "frank-wood",
   });
   assert.equal(reply.status, 200);
+  assert.equal(reply.data.status, "summoning");
+  assert.equal(reply.data.playerHealth, 0);
+  assert.equal(reply.data.fighters?.length, 2);
+  assert.equal(
+    (
+      await call(`battle/${id}/action`, {
+        actionId: randomUUID(),
+        version: 0,
+        kind: "attack",
+      })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await call(`battle/${id}/action`, {
+        actionId: randomUUID(),
+        version: 0,
+        kind: "summon",
+        professorId: "frank-wood",
+      })
+    ).status,
+    409,
+  );
+  const summonCommand = {
+    actionId: randomUUID(),
+    version: 0,
+    kind: "summon",
+    professorId: "tor-aamodt",
+  };
+  reply = await call(`battle/${id}/action`, summonCommand);
+  assert.equal(reply.status, 200);
+  assert.equal(reply.data.status, "fighting");
+  assert.equal(reply.data.activeProfessorId, "tor-aamodt");
+  assert.equal(reply.data.playerHealth, 57);
+  assert.deepEqual(
+    (await call(`battle/${id}/action`, summonCommand)).data,
+    reply.data,
+  );
+  assert.equal(
+    (
+      await call(`battle/${id}/action`, {
+        ...summonCommand,
+        professorId: "chao-liu",
+      })
+    ).status,
+    409,
+  );
+  assert.equal(
+    (
+      await call(`battle/${id}/action`, {
+        actionId: randomUUID(),
+        version: reply.data.version,
+        kind: "summon",
+        professorId: "chao-liu",
+      })
+    ).status,
+    409,
+  );
   assert.equal(
     (await call("battle/start", { encounterId: id, professorId: "frank-wood" }))
       .data.health,
@@ -94,12 +160,29 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
     (
       await call(`battle/${id}/action`, {
         actionId: randomUUID(),
-        version: 0,
+        version: reply.data.version,
         kind: "timeout",
       })
     ).status,
     409,
   );
+
+  // The professor's punch lands: only the player loses health, and a retry does not repeat it.
+  const punch = {
+    actionId: randomUUID(),
+    version: reply.data.version,
+    kind: "enemyAttack",
+  };
+  const punched = await call(`battle/${id}/action`, punch);
+  assert.equal(punched.status, 200);
+  assert.equal(punched.data.playerHealth, 56);
+  assert.equal(punched.data.health, reply.data.health);
+  assert.equal(punched.data.version, reply.data.version + 1);
+  assert.deepEqual(
+    (await call(`battle/${id}/action`, punch)).data,
+    punched.data,
+  );
+  reply = punched;
 
   while (reply.data.status === "fighting") {
     const command = {
@@ -115,6 +198,17 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
     );
   }
   assert.equal(reply.data.eventNumber, 1);
+  // The fight is paused for the question, so the professor cannot land a punch either.
+  assert.equal(
+    (
+      await call(`battle/${id}/action`, {
+        actionId: randomUUID(),
+        version: reply.data.version,
+        kind: "enemyAttack",
+      })
+    ).status,
+    409,
+  );
   assert.equal(
     (
       await call(`battle/${id}/action`, {
@@ -187,14 +281,7 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   assert.equal(reply.data.feedback?.playerDamage, quizDamage);
   assert.equal(
     reply.data.playerHealth,
-    Math.max(
-      0,
-      expired.combat.playerHealth -
-        quizDamage -
-        (reply.data.status === "question" || reply.data.status === "won"
-          ? 0
-          : Math.floor(expired.combat.attack / 20)),
-    ),
+    expired.combat.playerHealth - quizDamage,
   );
   assert.deepEqual(
     (await call(`battle/${id}/action`, lateAnswer)).data,
@@ -258,6 +345,77 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
     encounterId: anotherId,
     professorId: "frank-wood",
   });
+  // A knocked-out fighter stays unavailable after a persisted read. A reserve resumes
+  // the same opponent/checkpoints, and duplicate copies do not add extra fighters.
+  let reserves = await call(`battle/${anotherId}/action`, {
+    actionId: randomUUID(),
+    version: 0,
+    kind: "summon",
+    professorId: "tor-aamodt",
+  });
+  const low = readBattle(db, account.user.id, anotherId);
+  low.combat.playerHealth = 1;
+  low.combat.health = 30;
+  low.combat.eventsTriggered = 1;
+  db.prepare("UPDATE encounter_battles SET state_json = ? WHERE id = ?").run(
+    JSON.stringify(low),
+    anotherId,
+  );
+  const knockout = {
+    actionId: randomUUID(),
+    version: reserves.data.version,
+    kind: "enemyAttack",
+  };
+  reserves = await call(`battle/${anotherId}/action`, knockout);
+  assert.equal(reserves.data.status, "summoning");
+  assert.equal(
+    reserves.data.fighters?.find((fighter) => fighter.id === "tor-aamodt")
+      ?.defeated,
+    true,
+  );
+  assert.deepEqual(
+    (await call(`battle/${anotherId}/action`, knockout)).data,
+    reserves.data,
+  );
+  assert.equal(
+    (
+      await call(`battle/${anotherId}/action`, {
+        actionId: randomUUID(),
+        version: reserves.data.version,
+        kind: "summon",
+        professorId: "tor-aamodt",
+      })
+    ).status,
+    409,
+  );
+  reserves = await call(`battle/${anotherId}/action`, {
+    actionId: randomUUID(),
+    version: reserves.data.version,
+    kind: "summon",
+    professorId: "chao-liu",
+  });
+  assert.equal(reserves.data.playerHealth, 48);
+  assert.equal(reserves.data.health, 30);
+  assert.equal(reserves.data.eventsTriggered, 1);
+  assert.equal(reserves.data.activeProfessorId, "chao-liu");
+  const last = readBattle(db, account.user.id, anotherId);
+  last.combat.playerHealth = 1;
+  db.prepare("UPDATE encounter_battles SET state_json = ? WHERE id = ?").run(
+    JSON.stringify(last),
+    anotherId,
+  );
+  reserves = await call(`battle/${anotherId}/action`, {
+    actionId: randomUUID(),
+    version: reserves.data.version,
+    kind: "enemyAttack",
+  });
+  assert.equal(reserves.data.status, "lost");
+  assert.ok(reserves.data.fighters?.every((fighter) => fighter.defeated));
+  const rollbackId = randomUUID();
+  await call("battle/start", {
+    encounterId: rollbackId,
+    professorId: "frank-wood",
+  });
   db.exec(
     "CREATE TRIGGER fail_battle_receipt BEFORE INSERT ON encounter_actions BEGIN SELECT RAISE(ABORT, 'test write failure'); END;",
   );
@@ -266,7 +424,7 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
       changeBattle(
         db,
         account.user.id,
-        anotherId,
+        rollbackId,
         randomUUID(),
         0,
         { kind: "attack" },
@@ -274,6 +432,6 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
       ),
     /test write failure/,
   );
-  assert.equal(readBattle(db, account.user.id, anotherId).combat.health, 50);
+  assert.equal(readBattle(db, account.user.id, rollbackId).combat.health, 50);
   assert.equal(db.isTransaction, false);
 });

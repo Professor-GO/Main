@@ -9,6 +9,7 @@ type LobbyPageProps = {
   focus: boolean;
   onQuestion: () => void;
   onRecruit: () => void;
+  onInventory: () => void;
   onExplore: () => void;
   onLogout: () => void;
 };
@@ -17,6 +18,7 @@ export default function LobbyPage({
   focus,
   onQuestion,
   onRecruit,
+  onInventory,
   onExplore,
   onLogout,
 }: LobbyPageProps) {
@@ -98,6 +100,10 @@ export default function LobbyPage({
         </dl>
       </div>
       <div className="lobby-actions">
+        <button className="primary-button" type="button" onClick={onInventory}>
+          <span>View your professors</span>
+          <span aria-hidden="true">▦</span>
+        </button>
         <button
           className="primary-button"
           id="recruit-button"

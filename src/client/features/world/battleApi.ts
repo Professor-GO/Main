@@ -10,7 +10,9 @@ export type BattleView = {
   maxHealth: number;
   playerHealth: number;
   playerMaxHealth: number;
-  status: "fighting" | "question" | "won" | "lost" | "fled";
+  status: "summoning" | "fighting" | "question" | "won" | "lost" | "fled";
+  activeProfessorId?: string | null;
+  fighters?: SummonFighter[] | null;
   eventNumber: number | null;
   eventsTriggered: number;
   question: (PublicQuestion & { expiresAt: number }) | null;
@@ -28,12 +30,18 @@ export type BattleView = {
 export type BattleAction = {
   actionId: string;
   version: number;
-  kind: "attack" | "answer" | "timeout" | "flee";
+  // "attack" is the player's punch landing, "enemyAttack" the professor's.
+  kind: "summon" | "attack" | "enemyAttack" | "answer" | "timeout" | "flee";
+  professorId?: string;
   questionId?: string;
   selectedIndex?: number;
 };
 
 export type OwnedFighter = { id: string; name: string; level: number };
+export type SummonFighter = OwnedFighter & {
+  stats: { health: number; attack: number; defense: number; speed: number };
+  defeated: boolean;
+};
 
 /** Lists only professors actually owned by this account for the fighter selector. */
 export async function loadOwnedFighters(): Promise<OwnedFighter[]> {
@@ -74,13 +82,41 @@ function parseBattle(value: unknown): BattleView {
     !integer(b.playerHealth) ||
     !integer(b.playerMaxHealth) ||
     !b.playerMaxHealth ||
-    !["fighting", "question", "won", "lost", "fled"].includes(
+    !["summoning", "fighting", "question", "won", "lost", "fled"].includes(
       String(b.status),
     ) ||
     !integer(b.eventsTriggered) ||
     (b.eventNumber !== null && !integer(b.eventNumber))
   )
     throw new ApiError("Invalid battle response.");
+  if (
+    b.activeProfessorId !== undefined &&
+    b.activeProfessorId !== null &&
+    typeof b.activeProfessorId !== "string"
+  )
+    throw new ApiError("Invalid summoned professor.");
+  if (b.fighters !== undefined && b.fighters !== null) {
+    if (!Array.isArray(b.fighters))
+      throw new ApiError("Invalid battle collection.");
+    for (const value of b.fighters) {
+      const fighter = record(value),
+        stats = record(fighter.stats);
+      if (
+        typeof fighter.id !== "string" ||
+        typeof fighter.name !== "string" ||
+        !integer(fighter.level) ||
+        !fighter.level ||
+        typeof fighter.defeated !== "boolean" ||
+        !integer(stats.health) ||
+        !stats.health ||
+        !integer(stats.attack) ||
+        !integer(stats.defense) ||
+        !stats.defense ||
+        !integer(stats.speed)
+      )
+        throw new ApiError("Invalid battle collection.");
+    }
+  }
   if (b.question !== null) {
     const q = record(b.question);
     if (
