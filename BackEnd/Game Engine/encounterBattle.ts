@@ -76,12 +76,17 @@ export function strike(state: CombatState): CombatState {
   return next;
 }
 
-/** Heals floor(lost HP * random integer percentage from 50 to 80) on a wrong answer. */
+/** Wrong answers heal the professor and remove floor(80% of current player HP) before combat resumes. */
 export function resolveQuiz(
   state: CombatState,
   correct: boolean,
   random = Math.random,
-): { state: CombatState; healed: number; healingPercent: number } {
+): {
+  state: CombatState;
+  healed: number;
+  healingPercent: number;
+  playerDamage: number;
+} {
   if (state.status !== "question")
     throw new Error("There is no question to answer.");
   const next = structuredClone(state);
@@ -90,7 +95,9 @@ export function resolveQuiz(
     ((next.maxHealth - next.health) * healingPercent) / 100,
   );
   next.health = Math.min(next.maxHealth, next.health + healed);
+  const playerDamage = correct ? 0 : Math.floor((next.playerHealth * 80) / 100);
+  next.playerHealth = Math.max(0, next.playerHealth - playerDamage);
   next.pendingEvent = null;
   applyDamage(next, next.remainingDamage);
-  return { state: next, healed, healingPercent };
+  return { state: next, healed, healingPercent, playerDamage };
 }

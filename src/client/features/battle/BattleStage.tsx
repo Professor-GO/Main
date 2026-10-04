@@ -78,6 +78,7 @@ export default function BattleStage({
       else if (beat === "enemyAttack")
         actors.enemy.attack(() => actors.player.hit(), next);
       else if (beat === "enemyHit") actors.enemy.hit(next);
+      else if (beat === "playerHit") actors.player.hit(next);
       else if (beat === "heal") actors.enemy.heal(next);
       else {
         if (beat === "won") {

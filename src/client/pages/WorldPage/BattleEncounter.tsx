@@ -323,7 +323,7 @@ export default function BattleEncounter({
                 <strong>
                   {battle.feedback.correct
                     ? "Correct! No healing penalty."
-                    : `${battle.feedback.timedOut ? "Time’s up!" : "Incorrect."} ${professor.name} recovered ${battle.feedback.healed} HP (${battle.feedback.healingPercent}% of lost HP).`}
+                    : `${battle.feedback.timedOut ? "Time’s up!" : "Incorrect."} ${professor.name} recovered ${battle.feedback.healed} HP (${battle.feedback.healingPercent}% of lost HP).${battle.feedback.playerDamage !== undefined ? ` You lost ${battle.feedback.playerDamage} HP (80% of your current HP, rounded down).` : ""}`}
                 </strong>
                 <p>{battle.feedback.explanation}</p>
               </div>
@@ -341,8 +341,9 @@ export default function BattleEncounter({
                   Pop quiz {battle.eventNumber} / 3
                 </h3>
                 <p>
-                  Answer in 10 seconds. A wrong answer or timeout heals 50–80%
-                  of lost HP.
+                  Answer in 10 seconds. A wrong answer or timeout heals the
+                  professor for 50–80% of their lost HP and costs you 80% of
+                  your current HP (damage rounded down).
                 </p>
                 {battle.question ? (
                   <>

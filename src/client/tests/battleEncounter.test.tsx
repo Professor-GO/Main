@@ -67,7 +67,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-test("a fight pauses for a generated question, then a wrong answer heals the professor", async () => {
+test("a fight pauses for a generated question, then a wrong answer heals the professor and costs player HP", async () => {
   const waiting: BattleView = {
     ...base,
     version: 1,
@@ -81,6 +81,7 @@ test("a fight pauses for a generated question, then a wrong answer heals the pro
     ...base,
     version: 2,
     health: 44,
+    playerHealth: 20,
     eventsTriggered: 1,
     feedback: {
       correct: false,
@@ -89,6 +90,7 @@ test("a fight pauses for a generated question, then a wrong answer heals the pro
       explanation: "The array contains three elements.",
       healed: 9,
       healingPercent: 60,
+      playerDamage: 80,
     },
   };
   const fetcher = vi
@@ -111,6 +113,7 @@ test("a fight pauses for a generated question, then a wrong answer heals the pro
   expect(screen.getByRole("heading", { name: "Pop quiz 1 / 3" })).toHaveFocus();
   fireEvent.click(screen.getByRole("button", { name: "B. 2" }));
   await screen.findByText(/recovered 9 HP/);
+  expect(screen.getByText(/You lost 80 HP/)).toBeVisible();
   expect(
     screen.queryByRole("group", { name: "Answer choices" }),
   ).not.toBeInTheDocument();
@@ -145,6 +148,7 @@ test("ten seconds elapsing submits one timeout and shows the healing result", as
         ...base,
         version: 2,
         health: 42,
+        playerHealth: 20,
         eventsTriggered: 1,
         feedback: {
           correct: false,
@@ -153,6 +157,7 @@ test("ten seconds elapsing submits one timeout and shows the healing result", as
           explanation: "Three elements.",
           healed: 7,
           healingPercent: 50,
+          playerDamage: 80,
         },
       }),
     );
@@ -171,6 +176,7 @@ test("ten seconds elapsing submits one timeout and shows the healing result", as
     await vi.advanceTimersByTimeAsync(100);
   });
   expect(screen.getByText(/Time’s up!.*recovered 7 HP/)).toBeVisible();
+  expect(screen.getByText(/You lost 80 HP/)).toBeVisible();
   expect(fetcher).toHaveBeenCalledTimes(2);
   expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({
     kind: "timeout",

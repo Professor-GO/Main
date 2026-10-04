@@ -21,6 +21,8 @@ export type BattleView = {
     explanation: string;
     healed: number;
     healingPercent: number;
+    /** Older persisted results may omit the quiz's player-health penalty. */
+    playerDamage?: number;
   } | null;
 };
 export type BattleAction = {
@@ -103,7 +105,8 @@ function parseBattle(value: unknown): BattleView {
       (f.answerIndex as number) > 3 ||
       typeof f.explanation !== "string" ||
       !integer(f.healed) ||
-      !integer(f.healingPercent)
+      !integer(f.healingPercent) ||
+      (f.playerDamage !== undefined && !integer(f.playerDamage))
     )
       throw new ApiError("Invalid battle result.");
   }

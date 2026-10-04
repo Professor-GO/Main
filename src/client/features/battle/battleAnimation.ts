@@ -3,6 +3,7 @@ export type BattleBeat =
   | "playerAttack"
   | "enemyAttack"
   | "enemyHit"
+  | "playerHit"
   | "heal"
   | "won"
   | "lost"
@@ -17,13 +18,17 @@ export function battleBeats(
     return [];
   const beats: BattleBeat[] = [];
   if (before && before.id === after.id && after.status !== "fled") {
+    const playerDamage =
+      before.status === "question" ? (after.feedback?.playerDamage ?? 0) : 0;
     if (before.status === "fighting") beats.push("playerAttack");
     else if (before.status === "question") {
       const healed = after.feedback?.healed ?? 0;
       if (healed > 0) beats.push("heal");
+      if (playerDamage > 0) beats.push("playerHit");
       if (before.health + healed > after.health) beats.push("enemyHit");
     }
-    if (before.playerHealth > after.playerHealth) beats.push("enemyAttack");
+    if (before.playerHealth - playerDamage > after.playerHealth)
+      beats.push("enemyAttack");
   }
   if (
     after.status === "won" ||

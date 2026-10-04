@@ -17,6 +17,8 @@ export type Battle = {
     explanation: string;
     healed: number;
     healingPercent: number;
+    /** Absent on battle results persisted before the player-health penalty was added. */
+    playerDamage?: number;
   } | null;
 };
 

@@ -39,7 +39,10 @@ function answerBattle(battle: Battle, selectedIndex: number | null): Battle {
   if (selectedIndex === null && !timedOut)
     throw httpError(409, "There is still time to answer.");
   const correct = !timedOut && selectedIndex === battle.quiz.answerIndex;
-  const { state, healed, healingPercent } = resolveQuiz(battle.combat, correct);
+  const { state, healed, healingPercent, playerDamage } = resolveQuiz(
+    battle.combat,
+    correct,
+  );
   return {
     ...battle,
     combat: state,
@@ -51,6 +54,7 @@ function answerBattle(battle: Battle, selectedIndex: number | null): Battle {
       explanation: battle.quiz.explanation,
       healed,
       healingPercent,
+      playerDamage,
     },
   };
 }

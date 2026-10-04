@@ -75,7 +75,7 @@ test("wrong answers animate healing before deferred strike damage and the profes
     ...battle,
     version: 2,
     health: 42,
-    playerHealth: 98,
+    playerHealth: 18,
     feedback: {
       correct: false,
       timedOut: true,
@@ -83,10 +83,12 @@ test("wrong answers animate healing before deferred strike damage and the profes
       explanation: "",
       healed: 9,
       healingPercent: 60,
+      playerDamage: 80,
     },
   };
   assert.deepEqual(battleBeats(before, after), [
     "heal",
+    "playerHit",
     "enemyHit",
     "enemyAttack",
   ]);
@@ -94,10 +96,21 @@ test("wrong answers animate healing before deferred strike damage and the profes
     battleBeats(before, {
       ...after,
       health: 35,
-      feedback: { ...after.feedback!, correct: true, healed: 0 },
+      playerHealth: 98,
+      feedback: {
+        ...after.feedback!,
+        correct: true,
+        healed: 0,
+        playerDamage: 0,
+      },
     }),
     ["enemyAttack"],
   );
+  assert.deepEqual(
+    battleBeats(before, { ...after, playerHealth: 20, status: "question" }),
+    ["heal", "playerHit", "enemyHit"],
+  );
+  assert.deepEqual(battleBeats(after, after), []);
 });
 test("victory, defeat and fleeing are terminal visual states without a demo respawn", () => {
   assert.deepEqual(
