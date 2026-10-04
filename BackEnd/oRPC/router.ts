@@ -6,7 +6,7 @@
 
 import { api } from "./base.ts";
 import { login, logout, me, register } from "./procedures/auth.ts";
-import { inventory, levelUp, pool, pull } from "./procedures/gacha.ts";
+import { inventory, levelUp, pity, pool, pull } from "./procedures/gacha.ts";
 import { answer, question } from "./procedures/question.ts";
 
 // GET /api/health: reports that the server and database are working.
@@ -21,7 +21,7 @@ const health = api
 export const router = {
     health,
     auth: { me, register, login, logout },
-    gacha: { pool, pull },
+    gacha: { pool, pull, pity },
     inventory: { list: inventory, levelUp },
     question: { get: question, answer },
 };

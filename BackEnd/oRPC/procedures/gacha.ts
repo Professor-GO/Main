@@ -2,25 +2,35 @@
 
 import { z } from "zod";
 import { publicUser } from "../../Persistence Layer/auth.ts";
-import { GACHA_POOL, PULL_COST, inventoryFor, levelUpProfessor, pullProfessor } from "../../Professor Gacha System/gacha.ts";
+import { EPIC_PITY, GACHA_POOL, PULL_COST, inventoryFor, levelUpProfessor, pityFor, pullGacha } from "../../Professor Gacha System/gacha.ts";
 import { api, apiError, loggedIn, sameOrigin } from "../base.ts";
 
-// GET /api/gacha/pool (public): the pull cost and every professor that can be recruited, with their chances.
+// GET /api/gacha/pool (public): the pull cost and every professor, with their cage and chance before pity.
 export const pool = api
     .route({ method: "GET", path: "/gacha/pool" })
     .meta({ allowHead: true })
     .handler(() => ({ cost: PULL_COST, professors: GACHA_POOL }));
 
-// POST /api/gacha/pull: spends PULL_COST tokens to recruit a professor. 409 if the player has too few tokens.
+// POST /api/gacha/pull: spends PULL_COST tokens to pull a professor. 409 if the player has too few tokens.
+// The reply has the professor's inventory `item` (`item.professor.cage` is the cage they arrive in), `isNew`,
+// the player's `pity`, and their updated `user`.
 export const pull = api
     .route({ method: "POST", path: "/gacha/pull" })
     .use(sameOrigin)
     .use(loggedIn)
     .handler(({ context }) => {
-        const result = pullProfessor(context.db, context.user.id);
+        const result = pullGacha(context.db, context.user.id);
         if (!result) throw apiError(409, `You need ${PULL_COST} tokens to recruit a professor.`);
-        return { item: result.item, isNew: result.isNew, user: publicUser({ ...context.user, tokens: result.tokens }) };
+        const { tokens, ...prize } = result;
+        return { ...prize, user: publicUser({ ...context.user, tokens }) };
     });
+
+// GET /api/gacha/pity: the logged-in player's pity, and `epicPity`: how many pulls in a row
+// without an Epic or Legendary professor guarantee one (pity.epic counts toward it).
+export const pity = api
+    .route({ method: "GET", path: "/gacha/pity" })
+    .use(loggedIn)
+    .handler(({ context }) => ({ pity: pityFor(context.db, context.user.id), epicPity: EPIC_PITY }));
 
 // GET /api/inventory: the logged-in player's professors.
 export const inventory = api

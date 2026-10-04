@@ -45,6 +45,7 @@
 	},
 	"scripts": {
 		"start": "node BackEnd/server.ts",
+		"server": "npm run dev",
 		"dev": "concurrently --kill-others --names api,web \"npm:dev:backend\" \"npm:dev:frontend\"",
 		"dev:backend": "node BackEnd/server.ts --api-only",
 		"dev:frontend": "vite",

@@ -6,22 +6,67 @@ import { join, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { openDatabase } from "../BackEnd/Persistence Layer/database.ts";
 import { createAuth, hiddenEmail } from "../BackEnd/Persistence Layer/auth.ts";
-import { GACHA_POOL, PULL_COST, buildPool, inventoryFor, levelUpProfessor, pickProfessor, pullProfessor, rarityFor } from "../BackEnd/Professor Gacha System/gacha.ts";
+import {
+    CAGES, EPIC_CHANCE, GACHA_POOL, LEGENDARY_CHANCE, PULL_COST, STANDARD_CHANCE,
+    buildPool, inventoryFor, legendaryChance, levelUpProfessor, pickProfessor, pityFor, pullGacha, pullOdds, rarityFor,
+} from "../BackEnd/Professor Gacha System/gacha.ts";
+import type { Rarity } from "../BackEnd/Professor Gacha System/gacha.ts";
 import { PROFESSOR_POOL } from "../BackEnd/Professor Gacha System/Professor Pool/professors.ts";
 import type { ProfessorEntry } from "../BackEnd/Professor Gacha System/Professor Pool/professors.ts";
 
-test("pull chances are the inverse of each professor's average rating", () => {
+// A roll of 0 always draws this professor: the first Legendary in the pool.
+const FIRST_LEGENDARY = GACHA_POOL.filter((professor) => professor.rarity === "Legendary")[0];
+// A roll just under 1 draws this professor when no pity applies: the last Rare or Common in the pool.
+const LAST_STANDARD = GACHA_POOL.filter((professor) => professor.rarity === "Rare" || professor.rarity === "Common").at(-1)!;
+
+/**
+ * Checks that two chances are equal, allowing for floating-point rounding.
+ * @param actual - The chance that was calculated.
+ * @param expected - The chance it should be.
+ */
+function assertClose(actual: number, expected: number): void {
+    assert.ok(Math.abs(actual - expected) < 1e-12, `${actual} is not close to ${expected}`);
+}
+
+/**
+ * Pulls with a roll of 0, which always draws FIRST_LEGENDARY.
+ * @param db - The open test database.
+ * @param userId - The id of the player who is pulling.
+ * @returns The pull's result, which is always a professor.
+ */
+function pullLegendary(db: DatabaseSync, userId: string) {
+    const pull = pullGacha(db, userId, () => 0);
+    assert.ok(pull);
+    return pull;
+}
+
+/**
+ * Builds a roster entry for tests that only care about the professor's id and rating.
+ * @param id - The professor's id.
+ * @param avgRating - The professor's average rating, which decides their rarity.
+ * @returns The roster entry.
+ */
+function entry(id: string, avgRating: number): ProfessorEntry {
+    return { id, name: id, image: `/${id}.png`, avgRating, department: "Mathematics", stats: { health: 1, attack: 1, defense: 1, speed: 1 }, copiesToLevelUp: 1 };
+}
+
+test("every rarity can be pulled, each in its own cage, and the base chances add up to 1", () => {
     assert.equal(GACHA_POOL.length, PROFESSOR_POOL.length);
-    const total = GACHA_POOL.reduce((sum, professor) => sum + professor.pullChance, 0);
-    assert.ok(Math.abs(total - 1) < 1e-12);
-    // chance × rating is the same for everyone exactly when chance is proportional to 1 / rating.
-    for (const professor of GACHA_POOL) {
-        assert.ok(Math.abs(professor.pullChance * professor.avgRating - GACHA_POOL[0].pullChance * GACHA_POOL[0].avgRating) < 1e-12);
-        assert.equal(professor.rarity, rarityFor(professor.avgRating));
-    }
-    const best = GACHA_POOL.reduce((a, b) => a.avgRating > b.avgRating ? a : b);
-    const worst = GACHA_POOL.reduce((a, b) => a.avgRating < b.avgRating ? a : b);
-    assert.ok(best.pullChance < worst.pullChance);
+    // Adds up the base pull chances of every professor of one rarity.
+    const chanceOf = (rarity: Rarity) => GACHA_POOL.filter((professor) => professor.rarity === rarity)
+        .reduce((sum, professor) => sum + professor.pullChance, 0);
+    assertClose(chanceOf("Legendary"), LEGENDARY_CHANCE);
+    assertClose(chanceOf("Epic"), EPIC_CHANCE);
+    // Rare and Common professors share everything else, so every pull is a professor.
+    assertClose(chanceOf("Rare") + chanceOf("Common"), STANDARD_CHANCE);
+    assertClose(GACHA_POOL.reduce((sum, professor) => sum + professor.pullChance, 0), 1);
+    const standard = GACHA_POOL.filter((professor) => professor.rarity === "Rare" || professor.rarity === "Common");
+    for (const professor of standard) assertClose(professor.pullChance, STANDARD_CHANCE / standard.length);
+    for (const professor of GACHA_POOL) assert.equal(professor.rarity, rarityFor(professor.avgRating));
+
+    // The cage shows the rarity: golden for Legendary, iron for Epic, and bronze for Rare and Common.
+    assert.deepEqual([CAGES.Legendary.id, CAGES.Epic.id, CAGES.Rare.id, CAGES.Common.id], ["golden-cage", "iron-cage", "bronze-cage", "bronze-cage"]);
+    for (const professor of GACHA_POOL) assert.deepEqual(professor.cage, CAGES[professor.rarity]);
 });
 
 test("rarity rises with average rating", () => {
@@ -29,21 +74,45 @@ test("rarity rises with average rating", () => {
         ["Common", "Common", "Rare", "Rare", "Epic", "Epic", "Legendary", "Legendary"]);
 });
 
-test("draws follow the cumulative pull chances", () => {
-    const pool = buildPool([
-        { id: "a", name: "A", image: "/a.png", avgRating: 1, department: "Physics", stats: { health: 1, attack: 1, defense: 1, speed: 1 }, copiesToLevelUp: 1 },
-        { id: "b", name: "B", image: "/b.png", avgRating: 4, department: "English", stats: { health: 1, attack: 1, defense: 1, speed: 1 }, copiesToLevelUp: 1 },
-    ]);
-    // Weights 1 and 1/4 give chances of 80% and 20%.
-    assert.deepEqual(pool.map((professor) => professor.pullChance), [0.8, 0.2]);
-    assert.equal(pickProfessor(pool, () => 0).id, "a");
-    assert.equal(pickProfessor(pool, () => 0.79).id, "a");
-    assert.equal(pickProfessor(pool, () => 0.8).id, "b");
-    assert.equal(pickProfessor(pool, () => 0.999999).id, "b");
+test("the Legendary chance stays flat for 50 pulls, then rises in a straight line to a guarantee on pull 80", () => {
+    // legendaryChance takes the pulls already made without a Legendary, so pull 50 is legendaryChance(49).
+    assert.equal(legendaryChance(0), 0.0008);
+    assert.equal(legendaryChance(49), 0.0008);
+    // Pull 65 is halfway between pull 50 (0.08%) and pull 80 (100%).
+    assertClose(legendaryChance(64), 0.5004);
+    assert.equal(legendaryChance(79), 1);
+    assert.equal(legendaryChance(200), 1);
+    for (let pullsWithout = 49; pullsWithout < 79; pullsWithout++) {
+        assert.ok(legendaryChance(pullsWithout) < legendaryChance(pullsWithout + 1));
+    }
+});
+
+test("draws follow the pull odds, which pity changes", () => {
+    // Two Legendary professors, one Epic, one Rare, and one Common.
+    const pool = buildPool([entry("a", 5), entry("b", 4.6), entry("c", 4), entry("d", 3), entry("e", 2)]);
+    // Draws from the test pool with a fixed roll and returns the id of the professor.
+    const draw = (legendary: number, epic: number, roll: number) => pickProfessor({ legendary, epic }, () => roll, pool).id;
+
+    const odds = pullOdds({ legendary: 0, epic: 0 }, pool);
+    assert.deepEqual(odds.map((option) => option.professor.id), ["a", "b", "c", "d", "e"]);
+    [0.0004, 0.0004, 0.05, 0.9492 / 2, 0.9492 / 2].forEach((chance, index) => assertClose(odds[index].chance, chance));
+    assertClose(odds.reduce((sum, option) => sum + option.chance, 0), 1);
+    assert.deepEqual([0, 0.0005, 0.03, 0.06, 0.5, 0.6, 0.999999].map((roll) => draw(0, 0, roll)),
+        ["a", "b", "c", "d", "d", "e", "e"]);
+
+    // The 10th pull without an Epic is an Epic unless it is a Legendary, so no Rare or Common can be drawn.
+    assert.equal(draw(0, 8, 0.999999), "e");
+    assert.equal(draw(0, 9, 0.999999), "c");
+    assert.equal(draw(0, 9, 0), "a");
+    assert.deepEqual(pullOdds({ legendary: 0, epic: 9 }, pool).slice(3).map((option) => option.chance), [0, 0]);
+    // The 80th pull without a Legendary is always a Legendary, even when an Epic is also due.
+    assert.equal(draw(78, 0, 0.999999), "c");
+    assert.equal(draw(79, 0, 0.999999), "b");
+    assert.equal(draw(79, 9, 0.999999), "b");
 });
 
 test("invalid roster entries are rejected", () => {
-    const valid: ProfessorEntry = { id: "a", name: "A", image: "/a.png", avgRating: 3, department: "Physics", stats: { health: 1, attack: 1, defense: 1, speed: 1 }, copiesToLevelUp: 3 };
+    const valid: ProfessorEntry = { id: "a", name: "A", image: "/a.png", avgRating: 3, department: "Mathematics", stats: { health: 1, attack: 1, defense: 1, speed: 1 }, copiesToLevelUp: 3 };
     assert.throws(() => buildPool([]), /empty/);
     assert.throws(() => buildPool([valid, valid]), /duplicate id/);
     assert.throws(() => buildPool([{ ...valid, avgRating: 0 }]), /avgRating/);
@@ -52,6 +121,9 @@ test("invalid roster entries are rejected", () => {
     assert.throws(() => buildPool([{ ...valid, stats: { ...valid.stats, speed: 0 } }]), /stats/);
     assert.throws(() => buildPool([{ ...valid, copiesToLevelUp: 0 }]), /copiesToLevelUp/);
     assert.throws(() => buildPool([{ ...valid, copiesToLevelUp: 1.5 }]), /copiesToLevelUp/);
+    assert.throws(() => buildPool([valid, entry("epic", 4)]), /Legendary/);
+    assert.throws(() => buildPool([valid, entry("legendary", 5)]), /Epic/);
+    assert.throws(() => buildPool([entry("legendary", 5), entry("epic", 4)]), /Rare or Common/);
 });
 
 // Settings for createAuth() in tests. The in-memory databases never leave the test.
@@ -92,29 +164,37 @@ function tokensOf(db: DatabaseSync, userId: string): number {
     return (db.prepare('SELECT tokens FROM "user" WHERE id = ?').get(userId) as { tokens: number }).tokens;
 }
 
-test("pulling spends tokens and adds the professor to the inventory, or changes nothing when unaffordable", async () => {
+test("pulling spends tokens and saves the professor, or changes nothing when unaffordable", async () => {
     const db = await testDatabase();
     const userId = addPlayer(db, "Puller", PULL_COST * 2 + 5);
     // Returns the ids of the professors in the test player's inventory, in the order they were first pulled.
     const owned = () => inventoryFor(db, userId).map((item) => item.professor.id);
+    assert.deepEqual(pityFor(db, userId), { legendary: 0, epic: 0 });
 
-    const first = pullProfessor(db, userId, () => 0);
-    assert.equal(first?.item.professor.id, GACHA_POOL[0].id);
-    assert.equal(first?.item.level, 1);
-    assert.equal(first?.item.copies, 1);
-    assert.equal(first?.isNew, true);
-    assert.equal(first?.tokens, PULL_COST + 5);
-    const second = pullProfessor(db, userId, () => 0.999999);
-    assert.equal(second?.item.professor.id, GACHA_POOL.at(-1)?.id);
-    assert.equal(second?.isNew, true);
-    assert.equal(second?.tokens, 5);
+    const first = pullLegendary(db, userId);
+    assert.equal(first.item.professor.id, FIRST_LEGENDARY.id);
+    assert.equal(first.item.level, 1);
+    assert.equal(first.item.copies, 1);
+    assert.equal(first.isNew, true);
+    assert.equal(first.tokens, PULL_COST + 5);
+    // A Legendary resets both counts: the Legendary one and the 10-pull Epic-or-Legendary one.
+    assert.deepEqual(first.pity, { legendary: 0, epic: 0 });
+    assert.deepEqual(first.item.professor.cage, CAGES.Legendary);
+    const second = pullGacha(db, userId, () => 0.999999);
+    assert.ok(second);
+    assert.equal(second.item.professor.id, LAST_STANDARD.id);
+    assert.deepEqual(second.item.professor.cage, CAGES[LAST_STANDARD.rarity]);
+    assert.equal(second.isNew, true);
+    assert.equal(second.tokens, 5);
+    assert.deepEqual(second.pity, { legendary: 1, epic: 1 });
 
-    assert.equal(pullProfessor(db, userId), undefined);
+    assert.equal(pullGacha(db, userId), undefined);
     assert.equal(tokensOf(db, userId), 5);
-    assert.deepEqual(owned(), [GACHA_POOL[0].id, GACHA_POOL.at(-1)?.id]);
-    assert.deepEqual(inventoryFor(db, userId)[0], first?.item);
+    assert.deepEqual(owned(), [FIRST_LEGENDARY.id, LAST_STANDARD.id]);
+    assert.deepEqual(pityFor(db, userId), { legendary: 1, epic: 1 });
+    assert.deepEqual(inventoryFor(db, userId)[0], first.item);
     assert.equal(db.isTransaction, false);
-    assert.equal(pullProfessor(db, "no-such-player"), undefined);
+    assert.equal(pullGacha(db, "no-such-player"), undefined);
     db.close();
 });
 
@@ -127,36 +207,71 @@ test("token balances can never go negative", async () => {
     db.close();
 });
 
+test("pity is saved between pulls and guarantees an Epic every 10 pulls and a Legendary by pull 80", async () => {
+    const db = await testDatabase();
+    const userId = addPlayer(db, "Unlucky", PULL_COST * 80);
+    // The highest roll always draws the last professor that is still possible: LAST_STANDARD,
+    // or an Epic or Legendary once pity rules Rare and Common out.
+    const prizes = Array.from({ length: 80 }, () => pullGacha(db, userId, () => 0.999999)?.item.professor.id);
+    // Returns the numbers of the pulls, counting from 1, that drew a professor of the given rarity.
+    const pullsOf = (rarity: Rarity) => prizes.flatMap((id, index) => GACHA_POOL.find((professor) => professor.id === id)?.rarity === rarity ? [index + 1] : []);
+    // Pull 79 is an Epic too: by then the Legendary chance is over 95%, leaving no room for Rare or Common.
+    assert.deepEqual(pullsOf("Epic"), [10, 20, 30, 40, 50, 60, 70, 79]);
+    assert.deepEqual(pullsOf("Legendary"), [80]);
+    assert.equal(prizes.filter((id) => id === LAST_STANDARD.id).length, 71);
+    assert.equal(inventoryFor(db, userId).find((item) => item.professor.id === LAST_STANDARD.id)?.copies, 71);
+    assert.deepEqual(pityFor(db, userId), { legendary: 0, epic: 0 });
+    assert.equal(tokensOf(db, userId), 0);
+    db.close();
+});
+
+test("a Legendary restarts the 10-pull guarantee, just like an Epic", async () => {
+    const db = await testDatabase();
+    const userId = addPlayer(db, "Lucky", PULL_COST * 16);
+    // Rarity of the professor one pull draws with the given roll.
+    const pull = (roll: number) => pullGacha(db, userId, () => roll)?.item.professor.rarity;
+    // Five Rare or Common pulls, then a Legendary.
+    for (let index = 0; index < 5; index++) assert.notEqual(pull(0.999999), "Epic");
+    assert.equal(pityFor(db, userId).epic, 5);
+    assert.equal(pull(0), "Legendary");
+    assert.deepEqual(pityFor(db, userId), { legendary: 0, epic: 0 });
+    // The count starts again, so the guarantee lands on the 10th pull after the Legendary, not the 5th.
+    const next = Array.from({ length: 10 }, () => pull(0.999999));
+    assert.deepEqual(next.map((rarity) => rarity === "Epic"), [false, false, false, false, false, false, false, false, false, true]);
+    assert.equal(pityFor(db, userId).epic, 0);
+    db.close();
+});
+
 test("pulling a professor the player already owns adds a copy", async () => {
     const db = await testDatabase();
     const userId = addPlayer(db, "Collector", PULL_COST * 3);
-    const pulls = [0, 1, 2].map(() => pullProfessor(db, userId, () => 0));
-    assert.deepEqual(pulls.map((pull) => [pull?.isNew, pull?.item.copies, pull?.item.level]), [[true, 1, 1], [false, 2, 1], [false, 3, 1]]);
-    assert.equal(pulls[2]?.item.obtainedAt, pulls[0]?.item.obtainedAt);
-    assert.deepEqual(inventoryFor(db, userId).map((item) => [item.professor.id, item.copies]), [[GACHA_POOL[0].id, 3]]);
-    assert.throws(() => db.prepare("INSERT INTO inventory (user_id, professor_id) VALUES (?, ?)").run(userId, GACHA_POOL[0].id), /UNIQUE constraint failed/);
+    const pulls = [0, 1, 2].map(() => pullLegendary(db, userId));
+    assert.deepEqual(pulls.map((pull) => [pull.isNew, pull.item.copies, pull.item.level]), [[true, 1, 1], [false, 2, 1], [false, 3, 1]]);
+    assert.equal(pulls[2].item.obtainedAt, pulls[0].item.obtainedAt);
+    assert.deepEqual(inventoryFor(db, userId).map((item) => [item.professor.id, item.copies]), [[FIRST_LEGENDARY.id, 3]]);
+    assert.throws(() => db.prepare("INSERT INTO inventory (user_id, professor_id) VALUES (?, ?)").run(userId, FIRST_LEGENDARY.id), /UNIQUE constraint failed/);
     db.close();
 });
 
 test("levelling up spends copiesToLevelUp copies and always keeps one", async () => {
     const db = await testDatabase();
-    const professor = GACHA_POOL[0];
+    const professor = FIRST_LEGENDARY;
     const needed = professor.copiesToLevelUp;
     const userId = addPlayer(db, "Leveler", PULL_COST * (2 * needed + 1));
 
     assert.equal(levelUpProfessor(db, userId, professor.id), undefined);
     assert.equal(levelUpProfessor(db, userId, "no-such-professor"), undefined);
-    for (let pull = 0; pull < needed; pull++) pullProfessor(db, userId, () => 0);
+    for (let pull = 0; pull < needed; pull++) pullLegendary(db, userId);
     // One copy short: the professor itself plus copiesToLevelUp spare copies are needed.
     const short = levelUpProfessor(db, userId, professor.id);
     assert.deepEqual([short?.levelledUp, short?.item.level, short?.item.copies], [false, 1, needed]);
 
-    pullProfessor(db, userId, () => 0);
+    pullLegendary(db, userId);
     const levelled = levelUpProfessor(db, userId, professor.id);
     assert.deepEqual([levelled?.levelledUp, levelled?.item.level, levelled?.item.copies], [true, 2, 1]);
     assert.equal(levelUpProfessor(db, userId, professor.id)?.levelledUp, false);
 
-    for (let pull = 0; pull < needed; pull++) pullProfessor(db, userId, () => 0);
+    for (let pull = 0; pull < needed; pull++) pullLegendary(db, userId);
     assert.equal(levelUpProfessor(db, userId, professor.id)?.item.level, 3);
     assert.deepEqual(inventoryFor(db, userId).map((item) => [item.level, item.copies]), [[3, 1]]);
     assert.throws(() => db.prepare("UPDATE inventory SET copies = 0 WHERE user_id = ?").run(userId), /CHECK constraint failed/);
@@ -167,15 +282,16 @@ test("each player's copies and levels are separate, and professors no longer in 
     const db = await testDatabase();
     const alice = addPlayer(db, "Alice", PULL_COST * 2);
     const bob = addPlayer(db, "Bob", PULL_COST);
-    pullProfessor(db, alice, () => 0);
-    pullProfessor(db, alice, () => 0);
-    assert.equal(pullProfessor(db, bob, () => 0)?.isNew, true);
+    pullLegendary(db, alice);
+    pullLegendary(db, alice);
+    assert.equal(pullLegendary(db, bob).isNew, true);
     db.prepare("INSERT INTO inventory (user_id, professor_id) VALUES (?, 'retired-professor')").run(bob);
     assert.deepEqual(inventoryFor(db, alice).map((item) => item.copies), [2]);
-    assert.deepEqual(inventoryFor(db, bob).map((item) => [item.professor.id, item.copies]), [[GACHA_POOL[0].id, 1]]);
-    // Removing an account removes its inventory too.
+    assert.deepEqual(inventoryFor(db, bob).map((item) => [item.professor.id, item.copies]), [[FIRST_LEGENDARY.id, 1]]);
+    // Removing an account removes its inventory and pity too.
     db.prepare('DELETE FROM "user" WHERE id = ?').run(bob);
     assert.deepEqual(inventoryFor(db, bob), []);
+    assert.deepEqual(pityFor(db, bob), { legendary: 0, epic: 0 });
     db.close();
 });
 

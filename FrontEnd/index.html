@@ -76,7 +76,7 @@
                         <button class="primary-button" id="tokens-button" type="button"><span>Get tokens</span><span aria-hidden="true">?</span></button>
                     </div>
                     <p class="session-status" id="lobby-status" role="status"></p>
-                    <p class="lobby-note">Your account is ready. Recruiting and battles are still being built — check back for your first class.</p>
+                    <p class="lobby-note">Your account is ready. Battles are still being built — recruit your faculty while you wait.</p>
                     <p id="lobby-message" class="form-message" role="alert" hidden></p>
                     <button class="secondary-button" id="logout-button" type="button">Log out <span aria-hidden="true">↗</span></button>
                 </section>
@@ -97,6 +97,43 @@
                     </div>
                     <p class="session-status" id="question-status" role="status"></p>
                     <button class="secondary-button" id="question-next" type="button" hidden>Next question <span aria-hidden="true">→</span></button>
+                </section>
+
+                <section id="recruit-view" aria-labelledby="recruit-title" hidden>
+                    <button class="back-button" id="recruit-back" type="button"><span aria-hidden="true">←</span> Back to lobby</button>
+                    <p class="eyebrow"><span class="tiny-cross" aria-hidden="true">✦</span> RECRUIT · THE GASHAPON</p>
+                    <h1 id="recruit-title" tabindex="-1">Recruit a professor<span class="accent-dot">.</span></h1>
+                    <p class="intro">Each pull costs <strong id="recruit-cost">10</strong> tokens.<br>You have <strong id="recruit-tokens">0</strong> tokens.</p>
+                    <div class="pity-meter" id="pity-meter" hidden>
+                        <div class="pity-heading"><span class="eyebrow">EPIC GUARANTEE</span><span class="pity-count" id="pity-count"></span></div>
+                        <div class="pity-bar" id="pity-bar" role="progressbar" aria-label="Pulls toward a guaranteed Epic or Legendary professor" aria-valuemin="0"><div class="pity-fill" id="pity-fill"></div></div>
+                        <p class="pity-note" id="pity-note"></p>
+                    </div>
+                    <div class="gacha-stage" id="gacha-stage">
+                        <div class="gacha-machine" id="gacha-machine">
+                            <img class="machine-art" src="/Assets/gacha/gashapon_machine_front.png" alt="A gashapon machine full of capsules" draggable="false">
+                            <div class="machine-balls" id="machine-balls" aria-hidden="true"></div>
+                        </div>
+                        <div class="gacha-reveal" id="gacha-reveal" hidden>
+                            <div class="reveal-capsule" id="reveal-capsule" aria-hidden="true">
+                                <img class="capsule-half capsule-top" id="capsule-top" alt="" draggable="false">
+                                <img class="capsule-half capsule-bottom" id="capsule-bottom" alt="" draggable="false">
+                            </div>
+                            <div class="reveal-burst" id="reveal-burst" aria-hidden="true"></div>
+                            <div class="reveal-prize" id="reveal-prize" hidden>
+                                <div class="prize-window" id="prize-window"><img class="prize-professor" id="prize-professor" alt="" draggable="false"></div>
+                                <img class="prize-cage" id="prize-cage" alt="" draggable="false">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="prize-card" id="prize-card" role="status" hidden>
+                        <p class="prize-meta" id="prize-meta"></p>
+                        <h2 id="prize-name"></h2>
+                        <p class="prize-detail" id="prize-detail"></p>
+                        <dl class="prize-stats" id="prize-stats"></dl>
+                    </div>
+                    <button class="primary-button" id="pull-button" type="button"><span id="pull-label">Pull for 10 tokens</span><span aria-hidden="true">✦</span></button>
+                    <p class="session-status" id="recruit-status" role="status"></p>
                 </section>
             </section>
 
