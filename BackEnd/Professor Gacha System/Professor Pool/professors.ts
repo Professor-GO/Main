@@ -5,8 +5,12 @@
 // the higher a professor's rating, the harder they are to pull. Health and attack
 // are calculated from avgRating below, in inverse: the higher the rating, the lower they are.
 //
+// This list is shared by every player. Anything that differs from player to
+// player, such as a professor's level, is stored in the inventory table instead
+// (see BackEnd/schema.sql).
+//
 // The names and images match the folders in Assets/characters. The ratings,
-// departments, defense, and speed are still placeholders until the real values are chosen.
+// departments, defense, speed, and copiesToLevelUp are still placeholders until the real values are chosen.
 
 // Departments act as the professors' elements in battle.
 export const DEPARTMENTS = [
@@ -36,6 +40,7 @@ export type ProfessorEntry = {
     avgRating: number; // Average student rating from 1 to 5.
     department: Department; // The department the professor belongs to. This is used for battle mechanics like element in pokemon.
     stats: ProfessorStats; // The stats of the professor, like health defence speed.
+    copiesToLevelUp: number; // How many duplicate copies a player spends to level this professor up once. The professor itself is never used up.
 };
 
 // Health and attack are worked out from avgRating, so the roster only lists the other stats.
@@ -54,6 +59,7 @@ const ROSTER: readonly RosterEntry[] = [
         avgRating: 4.8,
         department: "Computer Science",
         stats: { defense: 80, speed: 75 },
+        copiesToLevelUp: 2,
     },
     {
         id: "shervin-jannesar",
@@ -62,6 +68,7 @@ const ROSTER: readonly RosterEntry[] = [
         avgRating: 3.6,
         department: "Computer Science",
         stats: { defense: 60, speed: 85 },
+        copiesToLevelUp: 4,
     },
     {
         id: "tor-aamodt",
@@ -70,6 +77,7 @@ const ROSTER: readonly RosterEntry[] = [
         avgRating: 4.2,
         department: "Computer Engineering",
         stats: { defense: 75, speed: 70 },
+        copiesToLevelUp: 3,
     },
     {
         id: "craig-scratchley",
@@ -78,6 +86,7 @@ const ROSTER: readonly RosterEntry[] = [
         avgRating: 3.9,
         department: "Computer Engineering",
         stats: { defense: 75, speed: 55 },
+        copiesToLevelUp: 4,
     },
     {
         id: "michael-seica",
@@ -86,6 +95,7 @@ const ROSTER: readonly RosterEntry[] = [
         avgRating: 2.7,
         department: "Mathematics",
         stats: { defense: 70, speed: 60 },
+        copiesToLevelUp: 5,
     },
     {
         id: "chao-liu",
@@ -94,6 +104,7 @@ const ROSTER: readonly RosterEntry[] = [
         avgRating: 5.0,
         department: "Mechanical Engineering",
         stats: { defense: 55, speed: 65 },
+        copiesToLevelUp: 2,
     },
     {
         id: "guy-lumieux",
@@ -102,6 +113,7 @@ const ROSTER: readonly RosterEntry[] = [
         avgRating: 1.2,
         department: "Computer Engineering",
         stats: { defense: 60, speed: 70 },
+        copiesToLevelUp: 5,
     },
 ];
 

@@ -7,15 +7,16 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import {
     openDatabase, hashPassword, verifyPassword, publicUser,
-    createSession, sessionUser, tokenHash, SESSION_SECONDS,
+    createSession, sessionUser, tokenHash, SESSION_SECONDS, STARTING_TOKENS,
     userById, userByUsername,
 } from "./database.ts";
 import type { UserRow } from "./database.ts";
-import { GACHA_POOL, PULL_COST, pullProfessor } from "./Professor Gacha System/gacha.ts";
+import { GACHA_POOL, PULL_COST, inventoryFor, levelUpProfessor, pullProfessor } from "./Professor Gacha System/gacha.ts";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const servers: Server[] = [];
 let database: DatabaseSync | undefined;
+let test = "";
 
 /**
  * Reads a port number from an environment variable.
@@ -175,7 +176,14 @@ function rateLimiter(maximum: number): (request: IncomingMessage) => void {
     };
 }
 // Fallback coding question in case Gemini is unavailable.
-function fallbackCodingQuestion() {
+function fallbackCodingQuestion(): {
+    source: string;
+    topic: string;
+    difficulty: string;
+    question: string;
+    hint: string;
+    message?: string;
+} {
     return {
         source: "fallback",
         topic: "arrays",
@@ -185,9 +193,9 @@ function fallbackCodingQuestion() {
     };
 }
 
-function parseGeminiQuestion(text) {
+function parseGeminiQuestion(text: string) {
     const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-    const candidates = [trimmed, trimmed.match(/\{[\s\S]*\}/)?.[0]].filter(Boolean);
+    const candidates = [trimmed, trimmed.match(/\{[\s\S]*\}/)?.[0]].filter((candidate): candidate is string => Boolean(candidate));
     for (const candidate of candidates) {
         try {
             const parsed = JSON.parse(candidate);
@@ -235,6 +243,12 @@ function buildGeminiPayload() {
     };
 }
 
+// The parts of Gemini's generateContent reply that we read. Every field is optional
+// because Gemini can leave them out, for example when it blocks a reply.
+type GeminiResponse = {
+    candidates?: { content?: { parts?: { text?: string }[] } }[];
+};
+
 /**
  * Fetches a response from Gemini for a specific model.
  */
@@ -249,7 +263,7 @@ async function fetchFromGemini(endpoint: URL): Promise<string | null> {
 
         if (!response.ok) return null;
 
-        const data = await response.json();
+        const data = await response.json() as GeminiResponse;
         const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("");
         return text || null;
     } catch {
@@ -278,7 +292,7 @@ function getModelsToTry(configuredModel: string | undefined): string[] {
         "gemini-3.8-flash",
         "gemini-3.5-flash-lite",
         "gemini-2.5-flash",
-    ])].filter(Boolean);
+    ])].filter((model): model is string => Boolean(model));
 }
 
 /**
@@ -349,6 +363,8 @@ async function main(): Promise<void> {
                 "/api/auth/logout": ["POST"],
                 "/api/gacha/pool": ["GET", "HEAD"],
                 "/api/gacha/pull": ["POST"],
+                "/api/inventory": ["GET"],
+                "/api/inventory/level-up": ["POST"],
                 "/api/question": ["GET"],
             };
             if (!Object.hasOwn(methods, path)) throw httpError(404, "Not found.");
@@ -362,6 +378,11 @@ async function main(): Promise<void> {
             }
             if (path === "/api/gacha/pool") {
                 return reply(response, 200, { cost: PULL_COST, professors: GACHA_POOL });
+            }
+            if (path === "/api/inventory") {
+                const user = sessionUser(db, requestToken(request));
+                if (!user) throw httpError(401, "Please log in to continue.");
+                return reply(response, 200, { inventory: inventoryFor(db, user.id) });
             }
             if (path === "/api/auth/me") {
                 const user = sessionUser(db, requestToken(request));
@@ -396,7 +417,18 @@ async function main(): Promise<void> {
                 if (!user) throw httpError(401, "Please log in to continue.");
                 const pull = pullProfessor(db, user.id);
                 if (!pull) throw httpError(409, `You need ${PULL_COST} tokens to recruit a professor.`);
-                return reply(response, 200, { professor: pull.professor, user: publicUser({ ...user, tokens: pull.tokens }) });
+                return reply(response, 200, { item: pull.item, isNew: pull.isNew, user: publicUser({ ...user, tokens: pull.tokens }) });
+            }
+            if (path === "/api/inventory/level-up") {
+                const user = sessionUser(db, requestToken(request));
+                if (!user) throw httpError(401, "Please log in to continue.");
+                const result = typeof body.professorId === "string" ? levelUpProfessor(db, user.id, body.professorId) : undefined;
+                if (!result) throw httpError(404, "You don't have that professor yet.");
+                if (!result.levelledUp) {
+                    const missing = result.item.professor.copiesToLevelUp + 1 - result.item.copies;
+                    throw httpError(409, `Collect ${missing} more ${missing === 1 ? "copy" : "copies"} of ${result.item.professor.name} to level them up.`);
+                }
+                return reply(response, 200, { item: result.item });
             }
             backendLimit(request);
             const username = typeof body.username === "string" ? body.username.trim() : "";
@@ -410,8 +442,9 @@ async function main(): Promise<void> {
             let user: UserRow | undefined;
             if (path === "/api/auth/register") {
                 const passwordHash = await hashPassword(password);
-                const inserted = db.prepare("INSERT INTO users (username, password_hash) VALUES (?, ?) ON CONFLICT(username) DO NOTHING")
-                    .run(username, passwordHash);
+                // Set the starting balance explicitly: databases created before it changed still default to 0.
+                const inserted = db.prepare("INSERT INTO users (username, password_hash, tokens) VALUES (?, ?, ?) ON CONFLICT(username) DO NOTHING")
+                    .run(username, passwordHash, STARTING_TOKENS);
                 if (!inserted.changes) throw httpError(409, "That username is taken. Try another one.");
                 user = userById(db, inserted.lastInsertRowid);
                 if (!user) throw new Error("Could not load the new account.");

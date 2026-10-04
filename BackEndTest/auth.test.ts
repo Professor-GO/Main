@@ -10,9 +10,10 @@ import { resolve, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:net";
 import { DatabaseSync } from "node:sqlite";
-import { openDatabase, tokenHash, userById } from "./database.ts";
-import type { PublicUser } from "./database.ts";
-import { GACHA_POOL, PULL_COST } from "./Professor Gacha System/gacha.ts";
+import { openDatabase, tokenHash, userById, STARTING_TOKENS } from "../BackEnd/database.ts";
+import type { PublicUser } from "../BackEnd/database.ts";
+import { GACHA_POOL, PULL_COST } from "../BackEnd/Professor Gacha System/gacha.ts";
+import type { InventoryItem } from "../BackEnd/Professor Gacha System/gacha.ts";
 
 type AccountResponse = { user: PublicUser };
 type ApiOptions = {
@@ -132,7 +133,7 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         assert.equal(result.data.user.username, "TestPlayer");
         assert.equal(result.data.user.isActive, true);
         assert.ok(Number.isFinite(Date.parse(result.data.user.createdAt)));
-        assert.equal(result.data.user.tokens, 0);
+        assert.equal(result.data.user.tokens, STARTING_TOKENS);
         assert.deepEqual(Object.keys(result.data.user).sort(), ["createdAt", "id", "isActive", "tokens", "username"]);
         assert.match(result.response.headers.get("set-cookie") ?? "", /HttpOnly; SameSite=Lax; Path=\/; Max-Age=604800/);
         userCookie = result.cookie;
@@ -144,7 +145,7 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         assert.ok(!stored.password_hash.includes(password));
         assert.equal(stored.created_at, result.data.user.createdAt);
         assert.equal(stored.is_active, 1);
-        assert.equal(stored.tokens, 0);
+        assert.equal(stored.tokens, STARTING_TOKENS);
         const session = db.prepare("SELECT * FROM sessions WHERE user_id = ?").get(userId);
         assert.ok(session);
         assert.equal(session.token_hash, tokenHash(userCookie.split("=")[1]));
@@ -208,14 +209,50 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
         assert.equal(broke.data.message, `You need ${PULL_COST} tokens to recruit a professor.`);
 
         db.prepare("UPDATE users SET tokens = ? WHERE id = ?").run(PULL_COST + 3, userId);
-        const pull = await api<AccountResponse & { professor: { id: string } }>("gacha/pull", { body: {}, cookie: userCookie });
+        const pull = await api<AccountResponse & { item: InventoryItem; isNew: boolean }>("gacha/pull", { body: {}, cookie: userCookie });
         assert.equal(pull.response.status, 200);
         assert.equal(pull.data.user.tokens, 3);
-        assert.ok(GACHA_POOL.some((professor) => professor.id === pull.data.professor.id));
-        const owned = db.prepare("SELECT professor_id FROM user_professors WHERE user_id = ?").all(userId);
-        assert.deepEqual(owned.map((row) => row.professor_id), [pull.data.professor.id]);
+        assert.equal(pull.data.item.level, 1);
+        assert.equal(pull.data.isNew, true);
+        assert.ok(GACHA_POOL.some((professor) => professor.id === pull.data.item.professor.id));
+        const owned = db.prepare("SELECT professor_id FROM inventory WHERE user_id = ?").all(userId);
+        assert.deepEqual(owned.map((row) => row.professor_id), [pull.data.item.professor.id]);
         assert.equal((await api("gacha/pull", { body: {}, cookie: userCookie })).response.status, 409);
         db.prepare("UPDATE users SET tokens = 0 WHERE id = ?").run(userId);
+    });
+
+    await t.test("players can only see their own inventory, with each professor's level", async () => {
+        assert.equal((await api("inventory")).response.status, 401);
+        const mine = await api<{ inventory: InventoryItem[] }>("inventory", { cookie: userCookie });
+        assert.equal(mine.response.status, 200);
+        assert.equal(mine.data.inventory.length, 1);
+        assert.equal(mine.data.inventory[0].level, 1);
+        db.prepare("UPDATE inventory SET level = 7 WHERE user_id = ?").run(userId);
+        assert.equal((await api<{ inventory: InventoryItem[] }>("inventory", { cookie: userCookie })).data.inventory[0].level, 7);
+        assert.throws(() => db.prepare("UPDATE inventory SET level = 0 WHERE user_id = ?").run(userId), /CHECK constraint failed/);
+        const other = await api<{ inventory: InventoryItem[] }>("inventory", {
+            cookie: (await api("auth/register", { body: { username: "SecondPlayer", password } })).cookie,
+        });
+        assert.deepEqual(other.data.inventory, []);
+    });
+
+    await t.test("players level up a professor by spending enough copies", async () => {
+        const item = (await api<{ inventory: InventoryItem[] }>("inventory", { cookie: userCookie })).data.inventory[0];
+        const levelUp = (professorId: unknown, cookie = userCookie) => api<{ item: InventoryItem; message: string }>("inventory/level-up", { body: { professorId }, cookie });
+        assert.equal((await levelUp(item.professor.id, "")).response.status, 401);
+        assert.equal((await levelUp(42)).response.status, 404);
+        const notOwned = GACHA_POOL.find((professor) => professor.id !== item.professor.id);
+        assert.equal((await levelUp(notOwned?.id)).response.status, 404);
+
+        const short = await levelUp(item.professor.id);
+        assert.equal(short.response.status, 409);
+        const missing = item.professor.copiesToLevelUp;
+        assert.equal(short.data.message, `Collect ${missing} more ${missing === 1 ? "copy" : "copies"} of ${item.professor.name} to level them up.`);
+
+        db.prepare("UPDATE inventory SET copies = ? WHERE user_id = ?").run(item.professor.copiesToLevelUp + 1, userId);
+        const levelled = await levelUp(item.professor.id);
+        assert.equal(levelled.response.status, 200);
+        assert.deepEqual([levelled.data.item.level, levelled.data.item.copies], [item.level + 1, 1]);
     });
 
     await t.test("inactive accounts cannot sign in or use an existing session", async () => {
@@ -238,7 +275,7 @@ test("account lifecycle through the website's backend proxy", { timeout: 30_000 
 
     await t.test("authenticated players can request a coding question", async () => {
         const login = await api("auth/login", { body: { username: "TestPlayer", password } });
-        const result = await api("question", { cookie: login.cookie, headers: { Origin: origin }, method: "GET" });
+        const result = await api<{ question: string; topic: string; difficulty: string; source: string }>("question", { cookie: login.cookie, headers: { Origin: origin }, method: "GET" });
         assert.equal(result.response.status, 200);
         assert.equal(typeof result.data.question, "string");
         assert.ok(result.data.question.length > 0);
@@ -307,4 +344,11 @@ test("older databases gain a zero token balance without losing accounts", async 
         assert.equal(user?.username, "Veteran");
         assert.equal(user?.tokens, 0);
     }
+});
+
+test("the schema's default token balance matches STARTING_TOKENS", () => {
+    const db = openDatabase(":memory:");
+    const id = db.prepare("INSERT INTO users (username, password_hash) VALUES ('Newcomer', 'scrypt:aa:bb')").run().lastInsertRowid;
+    assert.equal(userById(db, id)?.tokens, STARTING_TOKENS);
+    db.close();
 });
