@@ -13,6 +13,7 @@ let mode = "login";
 let pending = false;
 let restoring = true;
 let questionPending = false;
+let answerPending = false;
 
 function showMessage(element, message = "") {
     element.textContent = message;
@@ -136,27 +137,47 @@ function renderQuestion(question) {
     questionStatus.textContent = question.message ?? "";
 }
 
-// Locks in the player's answer, highlights the right one, and explains it.
-function answerQuestion(question, chosen) {
+// Saves the answer on the server, then shows its result and the updated token balance.
+async function answerQuestion(question, chosen) {
+    if (answerPending) return;
+    answerPending = true;
     const buttons = [...questionChoices.children];
-    buttons.forEach((button, index) => {
-        button.disabled = true;
-        if (index === question.answerIndex) button.classList.add("is-correct");
-        else if (index === chosen) button.classList.add("is-wrong");
-    });
-    const correct = chosen === question.answerIndex;
-    $("#question-result").textContent = correct
-        ? "Correct! Nicely done."
-        : `Not quite. The answer is ${String.fromCharCode(65 + question.answerIndex)}.`;
-    $("#question-explanation").textContent = question.explanation;
-    $("#question-explanation").hidden = !question.explanation;
-    $("#question-feedback").hidden = false;
-    questionNext.hidden = false;
-    questionNext.focus();
+    buttons.forEach((button) => { button.disabled = true; });
+    $("#question-back").disabled = true;
+    questionStatus.textContent = "Checking your answer…";
+    try {
+        const result = await api("question/answer", { questionId: question.id, selectedIndex: chosen }, "/api");
+        buttons.forEach((button, index) => {
+            if (index === result.answerIndex) button.classList.add("is-correct");
+            else if (index === chosen) button.classList.add("is-wrong");
+        });
+        $("#question-result").textContent = result.correct
+            ? (result.tokensAwarded === 1 ? "Correct! +1 token." : "Correct! Your token was already awarded.")
+            : `Not quite. The answer is ${String.fromCharCode(65 + result.answerIndex)}. No tokens earned.`;
+        $("#account-tokens").textContent = new Intl.NumberFormat().format(result.tokens);
+        $("#question-explanation").textContent = result.explanation;
+        $("#question-explanation").hidden = !result.explanation;
+        $("#question-feedback").hidden = false;
+        questionStatus.textContent = `Your balance: ${new Intl.NumberFormat().format(result.tokens)} tokens.`;
+        questionNext.hidden = false;
+        questionNext.focus();
+    } catch (error) {
+        questionStatus.textContent = error.message;
+        if (!error.status || error.status >= 500) {
+            // Retry the same choice if the reply was lost; the server cannot award twice.
+            buttons[chosen].disabled = false;
+            questionStatus.textContent += " Select your answer again to retry.";
+        } else {
+            questionNext.hidden = false;
+        }
+    } finally {
+        answerPending = false;
+        $("#question-back").disabled = false;
+    }
 }
 
 async function loadCodingQuestion() {
-    if (questionPending) return;
+    if (questionPending || answerPending) return;
     questionPending = true;
     questionCard.hidden = true;
     questionNext.hidden = true;

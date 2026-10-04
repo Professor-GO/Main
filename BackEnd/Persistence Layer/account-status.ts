@@ -1,9 +1,9 @@
 import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
-import { openDatabase, userByUsername } from "./database.ts";
+import { DEFAULT_DATABASE_PATH, openDatabase } from "./database.ts";
 
-const root = fileURLToPath(new URL("../", import.meta.url));
+const root = fileURLToPath(new URL("../../", import.meta.url));
 try { loadEnvFile(resolve(root, ".env")); }
 catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
 
@@ -15,14 +15,19 @@ if (!username || !["active", "inactive"].includes(status)) {
     process.exitCode = 1;
 } else {
     // Open the database and update the user's account status. can change to different database if needed. The database is locked during this operation to prevent race conditions.
-    const db = openDatabase(resolve(root, process.env.DATABASE_PATH ?? "BackEnd/data/game.sqlite"));
+    const db = openDatabase(resolve(root, process.env.DATABASE_PATH ?? DEFAULT_DATABASE_PATH));
     try {
-        const user = userByUsername(db, username);
+        if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'user'").get()) {
+            throw new Error("No accounts yet: start the game once with `npm start` to create the account tables.");
+        }
+        // Better Auth stores usernames in lowercase (see auth.ts in this folder).
+        const user = db.prepare('SELECT id FROM "user" WHERE username = ?').get(username.toLowerCase()) as { id: string } | undefined;
         if (!user) throw new Error(`No account found for ${username}.`);
         db.exec("BEGIN IMMEDIATE");
         try {
-            db.prepare("UPDATE users SET is_active = ? WHERE id = ?").run(status === "active" ? 1 : 0, user.id);
-            if (status === "inactive") db.prepare("DELETE FROM sessions WHERE user_id = ?").run(user.id);
+            db.prepare('UPDATE "user" SET isActive = ? WHERE id = ?').run(status === "active" ? 1 : 0, user.id);
+            // Deactivating also logs the player out everywhere.
+            if (status === "inactive") db.prepare("DELETE FROM session WHERE userId = ?").run(user.id);
             db.exec("COMMIT");
         } catch (error) { db.exec("ROLLBACK"); throw error; }
         console.log(`${username} is now ${status}.`);

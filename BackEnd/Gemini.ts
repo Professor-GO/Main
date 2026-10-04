@@ -13,7 +13,7 @@ const DEFAULT_MODELS = ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-2.5
 // How long to wait for each model before trying the next one, in milliseconds.
 const GEMINI_TIMEOUT_MS = 7_500;
 
-/** A multiple-choice coding question, as sent to the Get tokens page. */
+/** A complete generated question. Its answer and explanation stay private until submission. */
 export type CodingQuestion = {
     // Where the question came from: "gemini", or "fallback" for the built-in question.
     source: "gemini" | "fallback";

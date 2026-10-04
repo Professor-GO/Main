@@ -6,7 +6,7 @@
 //
 // This list is shared by every player. Anything that differs from player to
 // player, such as a professor's level, is stored in the inventory table instead
-// (see BackEnd/schema.sql).
+// (see BackEnd/Persistence Layer/schema.sql).
 //
 // The entries below are fictional placeholders until the real roster is chosen.
 
