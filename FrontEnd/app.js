@@ -5,9 +5,15 @@ const usernameInput = $("#username");
 const passwordInput = $("#password");
 const confirmInput = $("#confirm-password");
 const tabs = [$("#login-tab"), $("#signup-tab")];
+const questionButton = $("#question-button");
+const questionMeta = $("#question-meta");
+const questionBody = $("#question-body");
+const questionHint = $("#question-hint");
+const questionStatus = $("#question-status");
 let mode = "login";
 let pending = false;
 let restoring = true;
+let questionPending = false;
 
 function showMessage(element, message = "") {
     element.textContent = message;
@@ -48,10 +54,10 @@ function setMode(nextMode) {
     setBusy(false);
 }
 
-async function api(path, body) {
+async function api(path, body, prefix = "/api/auth") {
     let response;
     try {
-        response = await fetch(`/api/auth/${path}`, {
+        response = await fetch(`${prefix}/${path}`, {
             method: body === undefined ? "GET" : "POST",
             credentials: "same-origin",
             cache: "no-store",
@@ -81,6 +87,7 @@ function showLobby(user, focus = true) {
     resetPasswordVisibility();
     document.title = `${user.username} · Professor-Go`;
     if (focus) $("#lobby-title").focus();
+    void loadCodingQuestion();
 }
 
 function resetPasswordVisibility() {
@@ -88,6 +95,38 @@ function resetPasswordVisibility() {
     $("#toggle-password").textContent = "Show";
     $("#toggle-password").setAttribute("aria-label", "Show password");
     $("#toggle-password").setAttribute("aria-pressed", "false");
+}
+
+function setQuestionBusy(busy) {
+    questionPending = busy;
+    questionButton.disabled = busy;
+    questionButton.textContent = busy ? "Generating…" : "Generate question";
+}
+
+function renderQuestion(question) {
+    questionMeta.textContent = `${question.topic} · ${question.difficulty} · ${question.source === "gemini" ? "Gemini" : "Local fallback"}`;
+    questionBody.textContent = question.question;
+    if (question.hint) {
+        questionHint.textContent = `Hint: ${question.hint}`;
+        questionHint.hidden = false;
+    } else {
+        questionHint.hidden = true;
+    }
+    questionStatus.textContent = question.message ?? (question.source === "gemini" ? "Generated with Gemini." : "Showing a local fallback question.");
+}
+
+async function loadCodingQuestion() {
+    if (questionPending) return;
+    setQuestionBusy(true);
+    questionStatus.textContent = "Summoning a coding question…";
+    try {
+        const result = await api("question", undefined, "/api");
+        renderQuestion(result);
+    } catch (error) {
+        questionStatus.textContent = error.message;
+    } finally {
+        setQuestionBusy(false);
+    }
 }
 
 tabs.forEach((tab, index) => {
@@ -157,6 +196,8 @@ $("#logout-button").addEventListener("click", async () => {
         button.disabled = false;
     }
 });
+
+questionButton.addEventListener("click", () => { void loadCodingQuestion(); });
 
 const dialog = $("#how-dialog");
 $("#how-to-play").addEventListener("click", () => dialog.showModal());

@@ -174,6 +174,132 @@ function rateLimiter(maximum: number): (request: IncomingMessage) => void {
         if (++entry.count > maximum) throw httpError(429, "Too many attempts. Please wait a minute and try again.");
     };
 }
+// Fallback coding question in case Gemini is unavailable.
+function fallbackCodingQuestion() {
+    return {
+        source: "fallback",
+        topic: "arrays",
+        difficulty: "medium",
+        question: "Write a function that takes an array of professor names and returns a new array with duplicate names removed while preserving the original order.",
+        hint: "Think about using a Set to remember which names you have already seen.",
+    };
+}
+
+function parseGeminiQuestion(text) {
+    const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+    const candidates = [trimmed, trimmed.match(/\{[\s\S]*\}/)?.[0]].filter(Boolean);
+    for (const candidate of candidates) {
+        try {
+            const parsed = JSON.parse(candidate);
+            if (typeof parsed.question !== "string" || typeof parsed.topic !== "string" || typeof parsed.difficulty !== "string") {
+                throw new Error("Gemini returned an incomplete question payload.");
+            }
+            return {
+                source: "gemini",
+                topic: parsed.topic.trim() || "general programming",
+                difficulty: parsed.difficulty.trim() || "medium",
+                question: parsed.question.trim(),
+                hint: typeof parsed.hint === "string" ? parsed.hint.trim() : "",
+            };
+        } catch {
+            // Try the next candidate.
+        }
+    }
+    throw new Error("Gemini returned an unexpected question payload.");
+}
+
+/**
+ * Builds the Gemini API endpoint URL for a given model.
+ */
+function buildGeminiEndpoint(model: string, apiKey: string): URL {
+    const endpoint = new URL(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`);
+    endpoint.searchParams.set("key", apiKey);
+    return endpoint;
+}
+
+/**
+ * Builds the request payload for Gemini.
+ */
+function buildGeminiPayload() {
+    return {
+        contents: [{
+            role: "user",
+            parts: [{
+                text: "Generate one original coding question for a hackathon game about recruiting university professors. Return valid JSON with exactly these keys: question, topic, difficulty, hint. question should be one short paragraph, topic should be a concise programming topic, difficulty should be easy, medium, or hard, and hint should be a single sentence. Do not include markdown or code fences.",
+            }],
+        }],
+        generationConfig: {
+            temperature: 0.8,
+            responseMimeType: "application/json",
+        },
+    };
+}
+
+/**
+ * Fetches a response from Gemini for a specific model.
+ */
+async function fetchFromGemini(endpoint: URL): Promise<string | null> {
+    try {
+        const response = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(buildGeminiPayload()),
+            signal: AbortSignal.timeout(7_500),
+        });
+
+        if (!response.ok) return null;
+
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("");
+        return text || null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Tries each model in sequence until one succeeds.
+ */
+async function tryModels(models: string[], apiKey: string): Promise<string | null> {
+    for (const model of models) {
+        const endpoint = buildGeminiEndpoint(model, apiKey);
+        const text = await fetchFromGemini(endpoint);
+        if (text) return text;
+    }
+    return null;
+}
+
+/**
+ * Gets the list of models to try, in priority order.
+ */
+function getModelsToTry(configuredModel: string | undefined): string[] {
+    return [...new Set([
+        configuredModel,
+        "gemini-3.8-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-2.5-flash",
+    ])].filter(Boolean);
+}
+
+/**
+ * Generates a coding question from Gemini, or falls back to a hardcoded one.
+ */
+async function createCodingQuestion() {
+    const apiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!apiKey) return fallbackCodingQuestion();
+
+    const configuredModel = process.env.GEMINI_MODEL?.trim();
+    const models = getModelsToTry(configuredModel);
+
+    const text = await tryModels(models, apiKey);
+    if (!text) return fallbackCodingQuestion();
+
+    try {
+        return parseGeminiQuestion(text);
+    } catch {
+        return fallbackCodingQuestion();
+    }
+}
 
 /**
  * Starts Professor-Go: loads settings from .env, opens the database, reads the
@@ -221,8 +347,9 @@ async function main(): Promise<void> {
                 "/api/auth/register": ["POST"],
                 "/api/auth/login": ["POST"],
                 "/api/auth/logout": ["POST"],
-                "/api/gacha/pool": ["GET"],
+                "/api/gacha/pool": ["GET", "HEAD"],
                 "/api/gacha/pull": ["POST"],
+                "/api/question": ["GET"],
             };
             if (!Object.hasOwn(methods, path)) throw httpError(404, "Not found.");
             if (!methods[path].includes(request.method ?? "")) {
@@ -243,6 +370,18 @@ async function main(): Promise<void> {
                     throw httpError(401, "Please log in to continue.");
                 }
                 return reply(response, 200, { user: publicUser(user) });
+            }
+            if (path === "/api/question") {
+                checkOrigin(request);
+                const user = sessionUser(db, requestToken(request));
+                if (!user) throw httpError(401, "Please log in to continue.");
+                try {
+                    return reply(response, 200, await createCodingQuestion());
+                } catch (error) {
+                    const question = fallbackCodingQuestion();
+                    question.message = "Gemini is temporarily unavailable, so this local question is being shown instead.";
+                    return reply(response, 200, question);
+                }
             }
             checkOrigin(request);
             const body = await readJson(request);
