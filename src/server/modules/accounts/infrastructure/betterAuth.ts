@@ -16,7 +16,7 @@ import { username } from "better-auth/plugins";
 import { getMigrations } from "better-auth/db/migration";
 
 // Tokens every new account starts with.
-export const STARTING_TOKENS = 50;
+export const STARTING_TOKENS = 110;
 // How long a login lasts without being used: 7 days.
 export const SESSION_SECONDS = 60 * 60 * 24 * 7;
 // Usernames are 3–20 letters, numbers, or underscores.

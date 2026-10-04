@@ -4,7 +4,10 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import { openDatabase } from "../../../storage/database.ts";
-import { createAuth } from "../../accounts/infrastructure/betterAuth.ts";
+import {
+  STARTING_TOKENS,
+  createAuth,
+} from "../../accounts/infrastructure/betterAuth.ts";
 import { createBackendApp } from "../../../http/apiApp.ts";
 import {
   readBattle,
@@ -355,7 +358,7 @@ test("encounter API binds questions to fights, enforces timeouts and retries, an
   assert.equal(
     db.prepare('SELECT tokens FROM "user" WHERE id = ?').get(account.user.id)
       ?.tokens,
-    50,
+    STARTING_TOKENS,
   );
   assert.equal(
     db.prepare("SELECT COUNT(*) AS count FROM question_attempts").get()?.count,

@@ -4,7 +4,7 @@
 
 The core loop is **learn → earn tokens → recruit and upgrade → explore → battle → repeat**.
 
-- **Learn and recruit:** New accounts start with 50 tokens. Each correct practice answer earns 1 token; recruiting a professor costs 10 tokens. Professors have different rarities, departments and stats, and duplicate copies support level upgrades.
+- **Learn and recruit:** New accounts start with 110 tokens. Each correct practice answer earns 1 token; recruiting a professor costs 10 tokens. Professors have different rarities, departments and stats, and duplicate copies support level upgrades.
 - **Explore:** Walk around a university overworld, discover roaming professors and trigger encounters.
 - **Fight:** The intended battle experience lets players control their chosen professor against an AI-controlled opponent. Animated stickman bodies with professor faces give each fighter a recognizable identity.
 - **Answer under pressure:** At three enemy-health checkpoints, combat pauses for a coding question with a 10-second limit. Correct answers avoid a penalty. Wrong answers or timeouts heal the enemy and take health from the player's fighter, making coding knowledge part of the battle strategy.

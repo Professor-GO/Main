@@ -104,7 +104,13 @@ test("the player's strike never hurts the player: the professor must land their 
 });
 
 test("enemy punches deal 20% more damage before rounding, with a one-damage minimum", () => {
-  for (const [attack, damage] of [[100, 6], [50, 3], [39, 2], [19, 1], [1, 1]]) {
+  for (const [attack, damage] of [
+    [100, 6],
+    [50, 3],
+    [39, 2],
+    [19, 1],
+    [1, 1],
+  ]) {
     const state = enemyStrike(fight(1000, attack, 60));
     assert.equal(
       state.playerHealth,

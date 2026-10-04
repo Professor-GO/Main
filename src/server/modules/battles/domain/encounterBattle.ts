@@ -169,7 +169,10 @@ export function levelsOf(state: CombatState): {
  * Both fighters' level bonuses as whole percentages (see levelBonus). Only the higher level gets
  * one, and a battle without levels gives neither side a bonus.
  */
-export function levelBonuses(state: CombatState): { player: number; enemy: number } {
+export function levelBonuses(state: CombatState): {
+  player: number;
+  enemy: number;
+} {
   const levels = levelsOf(state);
   if (levels.enemy === null) return { player: 100, enemy: 100 };
   return {

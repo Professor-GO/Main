@@ -78,10 +78,7 @@ test("a higher-level fighter gets the bonus instead", () => {
   const state = fightAt(10, 50);
   assert.deepEqual(levelBonuses(state), { player: 300, enemy: 100 });
   assert.equal(strike(state).health, 10_000 - Math.floor((300 * 3) / 50));
-  assert.equal(
-    enemyStrike(state).playerHealth,
-    1000 - 4,
-  );
+  assert.equal(enemyStrike(state).playerHealth, 1000 - 4);
 });
 
 test("fighters of the same level fight on the base stats", () => {

@@ -63,7 +63,9 @@ test("a knockout offers reserves without resetting enemy health or quiz progress
   assert.equal(state.eventsTriggered, 1);
   assert.deepEqual(state.checkpoints, knocked.checkpoints);
   assert.equal(state.playerHealth, 70);
-  for (let i = 0; i < 4; i++) state = enemyStrike(state);
+  for (let i = 0; i < 2; i++) state = enemyStrike(state);
+  assert.equal(state.playerHealth, 22);
+  state = enemyStrike(state);
   assert.equal(state.status, "lost");
   assert.equal(state.playerHealth, 0);
   assert.ok(state.fighters?.every((fighter) => fighter.defeated));
