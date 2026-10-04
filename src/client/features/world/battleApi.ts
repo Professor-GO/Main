@@ -31,6 +31,31 @@ export type BattleAction = {
   selectedIndex?: number;
 };
 
+export type OwnedFighter = { id: string; name: string; level: number };
+
+/** Lists only professors actually owned by this account for the fighter selector. */
+export async function loadOwnedFighters(): Promise<OwnedFighter[]> {
+  const result = record(await request("/api/inventory"));
+  if (!Array.isArray(result.inventory))
+    throw new ApiError("Invalid professor collection.");
+  return result.inventory.map((entry: unknown) => {
+    const item = record(entry),
+      professor = record(item.professor);
+    if (
+      typeof professor.id !== "string" ||
+      typeof professor.name !== "string" ||
+      !Number.isSafeInteger(item.level) ||
+      (item.level as number) < 1
+    )
+      throw new ApiError("Invalid professor collection.");
+    return {
+      id: professor.id,
+      name: professor.name,
+      level: item.level as number,
+    };
+  });
+}
+
 /** Checks server replies before rendering HP, generated text or the countdown. */
 function parseBattle(value: unknown): BattleView {
   const b = record(value);

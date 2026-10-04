@@ -373,7 +373,7 @@ function drawHouse(
 
 /**
  * Draws a Legendary professor: a glowing golden token with their face, floating gently above a
- * pool of light, with their name above.
+ * pool of light, with their name above. One chasing the player glows red instead.
  * @param context - The canvas.
  * @param spawn - The professor.
  * @param x - Their position on the screen, in tiles.
@@ -399,8 +399,9 @@ function drawSpawn(
     base.y,
     30,
   );
-  glow.addColorStop(0, `rgb(255 214 77 / ${0.55 + pulse * 0.3})`);
-  glow.addColorStop(1, "rgb(255 214 77 / 0)");
+  const glowColour = spawn.chasing ? "235 64 52" : "255 214 77";
+  glow.addColorStop(0, `rgb(${glowColour} / ${0.55 + pulse * 0.3})`);
+  glow.addColorStop(1, `rgb(${glowColour} / 0)`);
   context.fillStyle = glow;
   context.beginPath();
   context.ellipse(base.x, base.y, 30, 13, 0, 0, Math.PI * 2);
@@ -435,7 +436,7 @@ function drawSpawn(
     );
   }
   context.restore();
-  context.strokeStyle = "#e0a800";
+  context.strokeStyle = spawn.chasing ? "#d62b1f" : "#e0a800";
   context.lineWidth = 3;
   context.beginPath();
   context.arc(centre.x, centre.y, radius, 0, Math.PI * 2);
@@ -456,10 +457,10 @@ function drawSpawn(
   }
 
   // Their name on a dark tag above the token.
-  const label = `★ ${spawn.name}`;
+  const label = spawn.chasing ? `! ${spawn.name} !` : `★ ${spawn.name}`;
   context.font = "bold 11px 'Segoe UI', Arial, sans-serif";
   const width = context.measureText(label).width + 14;
-  context.fillStyle = "rgb(37 75 63 / 0.92)";
+  context.fillStyle = spawn.chasing ? "rgb(122 22 16 / 0.92)" : "rgb(37 75 63 / 0.92)";
   context.beginPath();
   context.roundRect(centre.x - width / 2, centre.y - radius - 24, width, 18, 9);
   context.fill();

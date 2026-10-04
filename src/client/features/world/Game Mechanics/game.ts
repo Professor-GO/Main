@@ -1,6 +1,7 @@
 /**
- * Runs the campus map: moves the player each frame, brings Legendary professors onto the map
- * and takes them away again, notices when the player meets one, and redraws the screen.
+ * Runs the campus map: moves the player each frame, brings Legendary professors onto the map,
+ * moves them around, and takes them away again, notices when the player meets one, and redraws
+ * the screen.
  */
 import {
   CANVAS_HEIGHT,
@@ -14,17 +15,28 @@ import {
   createWorldMap,
   directionFor,
   findEncounter,
+  isChaser,
+  moveSpawn,
   pickSpawnPoint,
   screenOf,
   walk,
 } from "./world";
-import type { Direction, MoveInput, Point, Screen, Spawn } from "./world";
+import type {
+  Direction,
+  MoveInput,
+  Point,
+  ProfessorStats,
+  Screen,
+  Spawn,
+} from "./world";
 
 /** A Legendary professor who can appear on the map. */
 export type LegendaryProfessor = {
   id: string;
   name: string;
   department: string;
+  // Their stats, which decide whether they chase the player. Without them they only wander.
+  stats?: ProfessorStats;
 };
 
 /** What the page shows around the map: where the player is and where the professors are. */
@@ -32,6 +44,8 @@ export type WorldHud = {
   screen: Screen;
   // The screens that have a Legendary professor on them right now.
   spawnScreens: Screen[];
+  // The name of a professor chasing the player, or null if nobody is.
+  chasedBy: string | null;
 };
 
 /** Controls for a running map. */
@@ -110,6 +124,11 @@ export function startWorldGame(options: WorldGameOptions): WorldGame {
       name: professor.name,
       ...point,
       leavesAt: time + SPAWNING.lifetime,
+      chaser: isChaser(professor.stats),
+      chasing: false,
+      // Standing still until they choose a way to wander on the next frame.
+      heading: { x: 0, y: 0 },
+      turnAt: time,
     });
   }
 
@@ -118,6 +137,7 @@ export function startWorldGame(options: WorldGameOptions): WorldGame {
     const hud: WorldHud = {
       screen: screenOf(position),
       spawnScreens: spawns.map((professor) => screenOf(professor)),
+      chasedBy: spawns.find((professor) => professor.chasing)?.name ?? null,
     };
     const signature = JSON.stringify(hud);
     if (signature === lastHud) return;
@@ -125,7 +145,7 @@ export function startWorldGame(options: WorldGameOptions): WorldGame {
     onHud(hud);
   }
 
-  // One frame: move, update the professors, check for a meeting, and draw.
+  // One frame: move the player and the professors, check for a meeting, and draw.
   function tick(now: number): void {
     // A long gap (such as a hidden tab) counts as one short step, so nothing jumps.
     const seconds = Math.min((now - lastFrame) / 1000, 0.05);
@@ -137,6 +157,13 @@ export function startWorldGame(options: WorldGameOptions): WorldGame {
     if (direction) {
       facing = direction;
       position = walk(map, position, direction, seconds);
+    }
+    // Everyone holds still while the player is meeting a professor.
+    if (meeting === null) {
+      spawns = spawns.map((professor) => ({
+        ...moveSpawn(map, professor, position, time, seconds, random),
+        name: professor.name,
+      }));
     }
 
     spawns = spawns.filter(

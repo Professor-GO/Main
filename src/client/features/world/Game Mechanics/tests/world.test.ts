@@ -8,7 +8,9 @@ import {
   HOME_SCREEN,
   HOUSE,
   PLAYER_RADIUS,
+  ROAMING,
   SCREEN_TILES,
+  SPAWN_RADIUS,
   SPAWNING,
   START,
   TREE_KINDS,
@@ -20,7 +22,10 @@ import {
   directionFor,
   findEncounter,
   isBlocked,
+  isChaser,
+  isHome,
   isUnderCanopy,
+  moveSpawn,
   pickSpawnPoint,
   screenName,
   screenOf,
@@ -29,7 +34,7 @@ import {
   wrap,
   wrappedDistance,
 } from "../world.ts";
-import type { Direction, Point, Screen, WorldMap } from "../world.ts";
+import type { Direction, Point, Screen, Spawn, WorldMap } from "../world.ts";
 
 // A map with no scenery at all, for testing walking on its own.
 const OPEN_MAP: WorldMap = { propsOn: () => [] };
@@ -353,6 +358,10 @@ test("the player meets a Legendary professor by walking up to them, even across 
     x: 0.3,
     y: 20,
     leavesAt: 100,
+    chaser: false,
+    chasing: false,
+    heading: { x: 0, y: 0 },
+    turnAt: 0,
   };
   assert.equal(findEncounter({ x: 5, y: 20 }, [spawn]), undefined);
   assert.equal(
@@ -360,4 +369,163 @@ test("the player meets a Legendary professor by walking up to them, even across 
     spawn,
   );
   assert.equal(findEncounter({ x: WORLD_TILES - 0.3, y: 20 }, [spawn]), spawn);
+});
+
+// ---------------------------------------------------------------- Roaming
+
+// Today's two Legendary professors: Frank Wood adds up to 251 and Chao Liu to 212.
+const FRANK_WOOD_STATS = { health: 50, attack: 46, defense: 80, speed: 75 };
+const CHAO_LIU_STATS = { health: 48, attack: 44, defense: 55, speed: 65 };
+// One frame of the game loop, in seconds.
+const FRAME = 0.02;
+
+/**
+ * Makes a professor standing still at a point, ready to choose a way to wander.
+ * @param at - Where they stand.
+ * @param chaser - Whether they chase the player.
+ * @returns The professor.
+ */
+function roamer(at: Point, chaser: boolean): Spawn {
+  return {
+    id: 1,
+    professorId: "frank-wood",
+    ...at,
+    leavesAt: 1000,
+    chaser,
+    chasing: false,
+    heading: { x: 0, y: 0 },
+    turnAt: 0,
+  };
+}
+
+/**
+ * Runs a professor for a while, in small steps like the game loop takes.
+ * @param map - The map.
+ * @param spawn - The professor.
+ * @param player - Where the player stands.
+ * @param seconds - How long to run.
+ * @param random - A random number generator.
+ * @param check - Called with the professor before and after every frame.
+ * @returns The professor at the end.
+ */
+function roamFor(
+  map: WorldMap,
+  spawn: Spawn,
+  player: Point,
+  seconds: number,
+  random: () => number = seededRandom(7),
+  check: (before: Spawn, after: Spawn) => void = () => {},
+): Spawn {
+  let at = spawn;
+  for (let time = 0; time < seconds - 1e-9; time += FRAME) {
+    const next = moveSpawn(map, at, player, time, FRAME, random);
+    check(at, next);
+    at = next;
+  }
+  return at;
+}
+
+test("only professors whose stats add up to ROAMING.chaserPower chase the player", () => {
+  assert.equal(isChaser(FRANK_WOOD_STATS), true);
+  assert.equal(isChaser(CHAO_LIU_STATS), false);
+  assert.equal(isChaser(undefined), false);
+  assert.equal(
+    isChaser({ health: ROAMING.chaserPower - 3, attack: 1, defense: 1, speed: 1 }),
+    true,
+  );
+  assert.equal(
+    isChaser({ health: ROAMING.chaserPower - 4, attack: 1, defense: 1, speed: 1 }),
+    false,
+  );
+});
+
+test("wandering professors roam the map at a stroll, through scenery never, and never into home", () => {
+  const map = createWorldMap();
+  const random = seededRandom(3);
+  for (let professor = 0; professor < 5; professor++) {
+    const start = pickSpawnPoint(map, START, random);
+    assert.ok(start);
+    let travelled = 0;
+    const end = roamFor(map, roamer(start, false), START, 120, random, (before, after) => {
+      const step = wrappedDistance(before, after);
+      assert.ok(step <= ROAMING.wanderSpeed * FRAME + 1e-9, `stepped ${step} tiles`);
+      assert.equal(isHome(screenOf(after)), false);
+      assert.equal(isBlocked(map, after, SPAWN_RADIUS), false);
+      assert.equal(after.chasing, false);
+      travelled += step;
+    });
+    // They really do move about, rather than standing where they appeared.
+    assert.ok(travelled > 30, `only travelled ${travelled} tiles`);
+    assert.ok(wrappedDistance(start, end) > 0);
+  }
+});
+
+test("wandering professors ignore a player standing right next to them", () => {
+  const spawn = roamer({ x: 6, y: 6 }, false);
+  const after = roamFor(OPEN_MAP, spawn, { x: 7, y: 6 }, 2);
+  assert.equal(after.chasing, false);
+});
+
+test("a chaser runs at the player once they come within ROAMING.noticeRadius", () => {
+  const player = { x: 10, y: 5 };
+  // Just too far away to be noticed: they wander instead.
+  const far = roamer({ x: 10 - ROAMING.noticeRadius - 0.5, y: 5 }, true);
+  assert.equal(moveSpawn(OPEN_MAP, far, player, 0, FRAME, seededRandom(1)).chasing, false);
+
+  const near = roamer({ x: 10 - ROAMING.noticeRadius + 0.5, y: 5 }, true);
+  const before = wrappedDistance(near, player);
+  const after = roamFor(OPEN_MAP, near, player, 1);
+  assert.equal(after.chasing, true);
+  assert.ok(Math.abs(before - wrappedDistance(after, player) - ROAMING.chaseSpeed) < 1e-6);
+  // Slower than the player, so running away works.
+  assert.ok(ROAMING.chaseSpeed < WALK_SPEED);
+});
+
+test("a chaser keeps chasing until the player is ROAMING.giveUpRadius away", () => {
+  const player = { x: 30, y: 5 };
+  const chasing = { ...roamer({ x: 30 - ROAMING.noticeRadius - 1, y: 5 }, true), chasing: true };
+  assert.equal(moveSpawn(OPEN_MAP, chasing, player, 0, FRAME, seededRandom(1)).chasing, true);
+
+  const escaped = { ...chasing, x: 30 - ROAMING.giveUpRadius - 0.5 };
+  assert.equal(moveSpawn(OPEN_MAP, escaped, player, 0, FRAME, seededRandom(1)).chasing, false);
+});
+
+test("a chaser catches a player who stands still, even across the map's seam", () => {
+  const player = { x: 1, y: 5 };
+  const chaser = roamer({ x: WORLD_TILES - 4, y: 5 }, true);
+  const after = roamFor(OPEN_MAP, chaser, player, 3);
+  assert.equal(findEncounter(player, [after]), after);
+});
+
+test("a chaser works its way round a rock in the way", () => {
+  const rock = {
+    kind: "rock" as const,
+    x: 23,
+    y: 5,
+    footprint: { kind: "circle" as const, radius: 0.35 },
+  };
+  const map: WorldMap = { propsOn: () => [rock] };
+  const player = { x: 26, y: 5 };
+  for (const id of [1, 2]) {
+    const chaser = { ...roamer({ x: 20.5, y: 5 }, true), id };
+    const after = roamFor(map, chaser, player, 4, seededRandom(1), (_, next) =>
+      assert.equal(isBlocked(map, next, SPAWN_RADIUS), false),
+    );
+    assert.equal(findEncounter(player, [after]), after, `professor ${id} got stuck`);
+  }
+});
+
+test("home is safe: a chaser gives up on a player at home and never follows them in", () => {
+  const homeTop = HOME_SCREEN.row * SCREEN_TILES;
+  const chaser = {
+    ...roamer({ x: HOUSE.x, y: homeTop - 2 }, true),
+    chasing: true,
+  };
+  // Just inside the home screen: close by, but out of reach.
+  const player = { x: HOUSE.x, y: homeTop + 0.5 };
+  const after = roamFor(OPEN_MAP, chaser, player, 5, seededRandom(1), (_, next) =>
+    assert.equal(isHome(screenOf(next)), false),
+  );
+  assert.equal(after.chasing, false);
+  assert.equal(findEncounter(player, [after]), undefined);
 });

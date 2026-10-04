@@ -75,6 +75,7 @@ export default function WorldPage({ onBack }: WorldPageProps) {
   const [hud, setHud] = useState<WorldHud>({
     screen: HOME_SCREEN,
     spawnScreens: [],
+    chasedBy: null,
   });
   const [encounter, setEncounter] = useState<LegendaryProfessor | null>(null);
   const [fighting, setFighting] = useState(false);
@@ -293,7 +294,9 @@ export default function WorldPage({ onBack }: WorldPageProps) {
               )}
             </div>
             <p className="world-status" role="status">
-              {hud.spawnScreens.length
+              {hud.chasedBy
+                ? `${hud.chasedBy} is chasing you! Outrun them or head home, where you're safe.`
+                : hud.spawnScreens.length
                 ? `${hud.spawnScreens.length} Legendary ${hud.spawnScreens.length === 1 ? "professor is" : "professors are"} roaming: ${hud.spawnScreens.map(screenName).join(", ")}.`
                 : professors === null
                   ? "Looking for Legendary professors…"
